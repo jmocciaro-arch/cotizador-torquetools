@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#FF6600">
+  <title>Sin conexion — TorqueTools ERP</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background-color: #0B0E13;
+      color: #E5E7EB;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      text-align: center;
+    }
+
+    .container {
+      max-width: 480px;
+      width: 100%;
+    }
+
+    .logo {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 2rem;
+      background: #FF6600;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      font-weight: 900;
+      color: white;
+      letter-spacing: -1px;
+      box-shadow: 0 4px 24px rgba(255, 102, 0, 0.3);
+    }
+
+    .offline-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 1.5rem;
+      opacity: 0.5;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: #FF6600;
+      margin-bottom: 0.75rem;
+    }
+
+    .subtitle {
+      font-size: 1.1rem;
+      color: #9CA3AF;
+      margin-bottom: 2.5rem;
+      line-height: 1.5;
+    }
+
+    .features {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      text-align: left;
+    }
+
+    .features h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #6B7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 1rem;
+    }
+
+    .feature-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.625rem 0;
+    }
+
+    .feature-item:not(:last-child) {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .feature-dot {
+      width: 8px;
+      height: 8px;
+      background: #22C55E;
+      border-radius: 50%;
+      flex-shrink: 0;
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+    }
+
+    .feature-text {
+      font-size: 0.95rem;
+      color: #D1D5DB;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.875rem 1.5rem;
+      font-family: inherit;
+      font-size: 1rem;
+      font-weight: 600;
+      color: white;
+      background: #FF6600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      box-shadow: 0 2px 12px rgba(255, 102, 0, 0.25);
+    }
+
+    .btn:hover {
+      background: #E65C00;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(255, 102, 0, 0.35);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .retry-link {
+      display: block;
+      margin-top: 1rem;
+      color: #6B7280;
+      font-size: 0.875rem;
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+
+    .retry-link:hover {
+      color: #FF6600;
+    }
+
+    .pulse {
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">TT</div>
+
+    <svg class="offline-icon pulse" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="1.5">
+      <path d="M1 1l22 22M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+
+    <h1>Sin conexion</h1>
+    <p class="subtitle">
+      Estas sin internet, pero no pasa nada.<br>
+      Podes seguir trabajando con los datos guardados.
+    </p>
+
+    <div class="features">
+      <h2>Disponible offline</h2>
+      <div class="feature-item">
+        <span class="feature-dot"></span>
+        <span class="feature-text">Ver catalogo de productos</span>
+      </div>
+      <div class="feature-item">
+        <span class="feature-dot"></span>
+        <span class="feature-text">Ver lista de clientes</span>
+      </div>
+      <div class="feature-item">
+        <span class="feature-dot"></span>
+        <span class="feature-text">Crear cotizaciones (se sincronizan despues)</span>
+      </div>
+      <div class="feature-item">
+        <span class="feature-dot"></span>
+        <span class="feature-text">Editar datos de clientes</span>
+      </div>
+      <div class="feature-item">
+        <span class="feature-dot"></span>
+        <span class="feature-text">Consultar historial de cotizaciones guardadas</span>
+      </div>
+    </div>
+
+    <a href="/" class="btn">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+      Ir al dashboard
+    </a>
+
+    <a href="javascript:location.reload()" class="retry-link">
+      Reintentar conexion
+    </a>
+  </div>
+
+  <script>
+    // Cuando se recupere la conexión, recargar automáticamente
+    window.addEventListener('online', () => {
+      location.reload();
+    });
+  </script>
+</body>
+</html>

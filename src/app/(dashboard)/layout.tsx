@@ -1,0 +1,41 @@
+'use client'
+
+import { SidebarProvider, Sidebar, TopBar, MobileNav, useSidebar } from '@/components/ui/sidebar'
+import { ToastProvider } from '@/components/ui/toast'
+import { cn } from '@/lib/utils'
+
+function DashboardInner({ children }: { children: React.ReactNode }) {
+  const { collapsed } = useSidebar()
+
+  return (
+    <div className="min-h-screen bg-[#0B0E13]">
+      <Sidebar />
+      <div
+        className={cn(
+          'transition-all duration-300',
+          collapsed ? 'lg:ml-[72px]' : 'lg:ml-[260px]'
+        )}
+      >
+        <TopBar userName="Juan" />
+        <main className="p-4 lg:p-6 pb-24 lg:pb-6">
+          {children}
+        </main>
+      </div>
+      <MobileNav />
+    </div>
+  )
+}
+
+export default function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <ToastProvider>
+      <SidebarProvider>
+        <DashboardInner>{children}</DashboardInner>
+      </SidebarProvider>
+    </ToastProvider>
+  )
+}
