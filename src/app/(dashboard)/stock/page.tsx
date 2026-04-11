@@ -1,42 +1,147 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { SearchBar } from '@/components/ui/search-bar'
 import { Badge } from '@/components/ui/badge'
+import { Select } from '@/components/ui/select'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { KPICard } from '@/components/ui/kpi-card'
-import { Package, AlertTriangle, XCircle, CheckCircle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { createClient } from '@/lib/supabase/client'
+import type { Stock, Warehouse } from '@/types'
+import { Package, AlertTriangle, XCircle, CheckCircle, Loader2 } from 'lucide-react'
 
-const MOCK_STOCK = [
-  { sku: 'ASM18-8', name: 'Atornillador FEIN ASM 18-8', brand: 'FEIN', warehouse: 'Buenos Aires', qty: 12, min: 5 },
-  { sku: 'ASM18-12', name: 'Atornillador FEIN ASM 18-12', brand: 'FEIN', warehouse: 'Buenos Aires', qty: 3, min: 5 },
-  { sku: 'QL100N4', name: 'Torquímetro Tohnichi QL100N4', brand: 'TOHNICHI', warehouse: 'Madrid', qty: 0, min: 2 },
-  { sku: 'BL2000', name: 'Balanceador Tecna BL2000', brand: 'TECNA', warehouse: 'Buenos Aires', qty: 8, min: 3 },
-  { sku: 'IR2135', name: 'Llave impacto IR 2135', brand: 'INGERSOLL RAND', warehouse: 'Miami', qty: 1, min: 3 },
-  { sku: 'SD-PRO-16', name: 'Taladro SpeeDrill PRO 16mm', brand: 'SPEEDRILL', warehouse: 'Buenos Aires', qty: 15, min: 5 },
-]
+interface StockRow {
+  id: string
+  quantity: number
+  reserved: number
+  min_stock: number
+  product_sku: string
+  product_name: string
+  product_brand: string
+  warehouse_name: string
+  warehouse_code: string
+}
 
 export default function StockPage() {
+  const [stockItems, setStockItems] = useState<StockRow[]>([])
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([])
+  const [brands, setBrands] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [warehouseFilter, setWarehouseFilter] = useState('')
   const [brandFilter, setBrandFilter] = useState('')
+  const debounceRef = useRef<NodeJS.Timeout | null>(null)
 
-  const warehouses = [...new Set(MOCK_STOCK.map(s => s.warehouse))]
-  const brands = [...new Set(MOCK_STOCK.map(s => s.brand))]
+  // KPIs
+  const [kpis, setKpis] = useState({ total: 0, inStock: 0, lowStock: 0, outOfStock: 0 })
 
-  const filtered = MOCK_STOCK.filter(s => {
-    const q = search.toLowerCase()
-    const matchSearch = !q || s.sku.toLowerCase().includes(q) || s.name.toLowerCase().includes(q) || s.brand.toLowerCase().includes(q)
-    const matchWH = !warehouseFilter || s.warehouse === warehouseFilter
-    const matchBrand = !brandFilter || s.brand === brandFilter
-    return matchSearch && matchWH && matchBrand
-  })
+  useEffect(() => {
+    loadWarehouses()
+  }, [])
 
-  const totalItems = MOCK_STOCK.length
-  const inStock = MOCK_STOCK.filter(s => s.qty > s.min).length
-  const lowStock = MOCK_STOCK.filter(s => s.qty > 0 && s.qty <= s.min).length
-  const outOfStock = MOCK_STOCK.filter(s => s.qty === 0).length
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      loadStock()
+    }, 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [search, warehouseFilter, brandFilter])
+
+  async function loadWarehouses() {
+    const supabase = createClient()
+    const { data } = await supabase
+      .from('tt_warehouses')
+      .select('*')
+      .eq('is_active', true)
+      .order('name')
+    setWarehouses((data || []) as Warehouse[])
+  }
+
+  const loadStock = useCallback(async () => {
+    const supabase = createClient()
+    setLoading(true)
+
+    try {
+      // Stock join con productos y almacenes
+      let query = supabase
+        .from('tt_stock')
+        .select(`
+          id, quantity, reserved, min_stock,
+          product:tt_products(sku, name, brand),
+          warehouse:tt_warehouses(name, code)
+        `)
+        .order('quantity', { ascending: true })
+
+      if (warehouseFilter) {
+        query = query.eq('warehouse_id', warehouseFilter)
+      }
+
+      const { data } = await query
+
+      if (!data || data.length === 0) {
+        setStockItems([])
+        setBrands([])
+        setKpis({ total: 0, inStock: 0, lowStock: 0, outOfStock: 0 })
+        setLoading(false)
+        return
+      }
+
+      // Flatten joined data
+      let items: StockRow[] = data.map((row: Record<string, unknown>) => {
+        const product = row.product as Record<string, string> | null
+        const warehouse = row.warehouse as Record<string, string> | null
+        return {
+          id: row.id as string,
+          quantity: row.quantity as number,
+          reserved: row.reserved as number,
+          min_stock: row.min_stock as number,
+          product_sku: product?.sku || '',
+          product_name: product?.name || '',
+          product_brand: product?.brand || '',
+          warehouse_name: warehouse?.name || '',
+          warehouse_code: warehouse?.code || '',
+        }
+      })
+
+      // Unique brands
+      const uniqueBrands = [...new Set(items.map((i) => i.product_brand).filter(Boolean))]
+      uniqueBrands.sort()
+      setBrands(uniqueBrands)
+
+      // Brand filter
+      if (brandFilter) {
+        items = items.filter((i) => i.product_brand === brandFilter)
+      }
+
+      // Search filter
+      if (search.trim()) {
+        const q = search.toLowerCase()
+        items = items.filter(
+          (i) =>
+            i.product_sku.toLowerCase().includes(q) ||
+            i.product_name.toLowerCase().includes(q) ||
+            i.product_brand.toLowerCase().includes(q)
+        )
+      }
+
+      // KPIs
+      const total = items.length
+      const inStock = items.filter((i) => i.quantity > i.min_stock).length
+      const lowStock = items.filter((i) => i.quantity > 0 && i.quantity <= i.min_stock).length
+      const outOfStock = items.filter((i) => i.quantity === 0).length
+      setKpis({ total, inStock, lowStock, outOfStock })
+
+      setStockItems(items)
+    } catch (err) {
+      console.error('Error cargando stock:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [search, warehouseFilter, brandFilter])
 
   function stockColor(qty: number, min: number) {
     if (qty === 0) return 'text-red-400'
@@ -50,79 +155,150 @@ export default function StockPage() {
     return <Badge variant="success">OK</Badge>
   }
 
+  const warehouseOptions = warehouses.map((w) => ({
+    value: w.id,
+    label: `${w.name} (${w.code})`,
+  }))
+
+  const brandOptions = brands.map((b) => ({ value: b, label: b }))
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-fade-in">
+      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-[#F0F2F5]">Stock</h1>
-        <p className="text-sm text-gray-400 mt-1">Control de inventario multi-almacén</p>
+        <p className="text-sm text-[#6B7280] mt-1">Control de inventario multi-almacen</p>
       </div>
 
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard label="Total productos" value={totalItems} icon={<Package size={20} />} />
-        <KPICard label="En stock" value={inStock} icon={<CheckCircle size={20} />} color="#00C853" />
-        <KPICard label="Stock bajo" value={lowStock} icon={<AlertTriangle size={20} />} color="#FFB300" />
-        <KPICard label="Sin stock" value={outOfStock} icon={<XCircle size={20} />} color="#FF3D00" />
+        <KPICard
+          label="Total items"
+          value={kpis.total}
+          icon={<Package size={20} />}
+        />
+        <KPICard
+          label="En stock"
+          value={kpis.inStock}
+          icon={<CheckCircle size={20} />}
+          color="#00C853"
+        />
+        <KPICard
+          label="Stock bajo"
+          value={kpis.lowStock}
+          icon={<AlertTriangle size={20} />}
+          color="#FFB300"
+        />
+        <KPICard
+          label="Sin stock"
+          value={kpis.outOfStock}
+          icon={<XCircle size={20} />}
+          color="#FF3D00"
+        />
       </div>
 
+      {/* Filters & Table */}
       <Card>
         <CardHeader>
-          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
+          <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between w-full">
             <CardTitle>Inventario</CardTitle>
             <div className="flex flex-wrap gap-2">
-              <select
+              <Select
                 value={warehouseFilter}
-                onChange={e => setWarehouseFilter(e.target.value)}
-                className="bg-[#1C2230] border border-[#2A3040] text-[#F0F2F5] text-sm rounded-lg px-3 py-2"
-              >
-                <option value="">Todos los almacenes</option>
-                {warehouses.map(w => <option key={w} value={w}>{w}</option>)}
-              </select>
-              <select
+                onChange={(e) => setWarehouseFilter(e.target.value)}
+                options={warehouseOptions}
+                placeholder="Todos los almacenes"
+              />
+              <Select
                 value={brandFilter}
-                onChange={e => setBrandFilter(e.target.value)}
-                className="bg-[#1C2230] border border-[#2A3040] text-[#F0F2F5] text-sm rounded-lg px-3 py-2"
-              >
-                <option value="">Todas las marcas</option>
-                {brands.map(b => <option key={b} value={b}>{b}</option>)}
-              </select>
+                onChange={(e) => setBrandFilter(e.target.value)}
+                options={brandOptions}
+                placeholder="Todas las marcas"
+              />
             </div>
           </div>
-          <SearchBar value={search} onChange={setSearch} placeholder="Buscar por SKU, nombre o marca..." />
         </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>SKU</TableHead>
-                <TableHead>Producto</TableHead>
-                <TableHead>Marca</TableHead>
-                <TableHead>Almacén</TableHead>
-                <TableHead className="text-right">Cantidad</TableHead>
-                <TableHead>Estado</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.map(s => (
-                <TableRow key={s.sku + s.warehouse}>
-                  <TableCell className="font-mono text-sm">{s.sku}</TableCell>
-                  <TableCell>{s.name}</TableCell>
-                  <TableCell><Badge>{s.brand}</Badge></TableCell>
-                  <TableCell className="text-gray-400">{s.warehouse}</TableCell>
-                  <TableCell className={`text-right font-bold text-lg ${stockColor(s.qty, s.min)}`}>{s.qty}</TableCell>
-                  <TableCell>{stockBadge(s.qty, s.min)}</TableCell>
+        <CardContent className="space-y-4">
+          <SearchBar
+            value={search}
+            onChange={setSearch}
+            placeholder="Buscar por SKU, nombre o marca..."
+          />
+
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={32} className="animate-spin text-[#FF6600]" />
+            </div>
+          ) : stockItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-[#4B5563]">
+              <Package size={48} className="mb-4" />
+              <p className="text-lg font-medium">No hay datos de stock</p>
+              <p className="text-sm mt-1">
+                {warehouseFilter || brandFilter || search
+                  ? 'Proba quitando filtros'
+                  : 'La tabla tt_stock esta vacia. Los datos se cargan cuando se registren movimientos de stock.'}
+              </p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Producto</TableHead>
+                  <TableHead>Marca</TableHead>
+                  <TableHead>Almacen</TableHead>
+                  <TableHead className="text-right">Cantidad</TableHead>
+                  <TableHead className="text-right">Reservado</TableHead>
+                  <TableHead className="text-right">Disponible</TableHead>
+                  <TableHead>Estado</TableHead>
                 </TableRow>
-              ))}
-              {filtered.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="text-center text-gray-500 py-8">
-                    Sin resultados
-                  </td>
-                </tr>
-              )}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {stockItems.map((s) => {
+                  const available = s.quantity - s.reserved
+                  return (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-mono text-sm">{s.product_sku}</TableCell>
+                      <TableCell className="max-w-[200px] truncate">{s.product_name}</TableCell>
+                      <TableCell><Badge>{s.product_brand}</Badge></TableCell>
+                      <TableCell className="text-[#9CA3AF]">{s.warehouse_name}</TableCell>
+                      <TableCell className={`text-right font-bold text-lg ${stockColor(s.quantity, s.min_stock)}`}>
+                        {s.quantity}
+                      </TableCell>
+                      <TableCell className="text-right text-[#6B7280]">{s.reserved}</TableCell>
+                      <TableCell className={`text-right font-medium ${stockColor(available, s.min_stock)}`}>
+                        {available}
+                      </TableCell>
+                      <TableCell>{stockBadge(s.quantity, s.min_stock)}</TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
+
+      {/* Warehouses summary */}
+      {warehouses.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {warehouses.map((w) => (
+            <Card key={w.id}>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-[#FF6600]/10 flex items-center justify-center">
+                    <Package size={20} className="text-[#FF6600]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#F0F2F5]">{w.name}</p>
+                    <p className="text-xs text-[#6B7280]">{w.code} - {w.city || w.country}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

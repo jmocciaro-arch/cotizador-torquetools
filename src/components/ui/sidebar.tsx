@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, createContext, useContext } from 'react'
+import { useState, useEffect, createContext, useContext, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -9,12 +9,14 @@ import {
   ChevronLeft, ChevronRight, Menu, X, LogOut
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 
 interface SidebarContextType {
   collapsed: boolean
   setCollapsed: (v: boolean) => void
   mobileOpen: boolean
   setMobileOpen: (v: boolean) => void
+  badges: Record<string, number>
 }
 
 const SidebarContext = createContext<SidebarContextType>({
@@ -22,31 +24,65 @@ const SidebarContext = createContext<SidebarContextType>({
   setCollapsed: () => {},
   mobileOpen: false,
   setMobileOpen: () => {},
+  badges: {},
 })
 
 export const useSidebar = () => useContext(SidebarContext)
 
 const navItems = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { label: 'Cotizador', href: '/cotizador', icon: FileText },
+  { label: 'Cotizador', href: '/cotizador', icon: FileText, badgeKey: 'quotes_draft' },
   { label: 'Catálogo', href: '/catalogo', icon: Package },
   { label: 'Clientes', href: '/clientes', icon: Users },
   { label: 'Stock', href: '/stock', icon: Warehouse },
   { label: 'CRM', href: '/crm', icon: Target },
-  { label: 'Compras', href: '/compras', icon: ShoppingCart },
-  { label: 'Ventas', href: '/ventas', icon: Receipt },
-  { label: 'SAT', href: '/sat', icon: Wrench },
+  { label: 'Compras', href: '/compras', icon: ShoppingCart, badgeKey: 'po_pending' },
+  { label: 'Ventas', href: '/ventas', icon: Receipt, badgeKey: 'so_open' },
+  { label: 'SAT', href: '/sat', icon: Wrench, badgeKey: 'sat_open' },
   { label: 'Calendario', href: '/calendario', icon: Calendar },
   { label: 'Mail', href: '/mail', icon: Mail },
   { label: 'Admin', href: '/admin', icon: Settings },
 ]
 
+function useBadgeCounts() {
+  const [badges, setBadges] = useState<Record<string, number>>({})
+
+  const fetchBadges = useCallback(async () => {
+    try {
+      const supabase = createClient()
+      const [quotesRes, poRes, soRes, satRes] = await Promise.all([
+        supabase.from('tt_quotes').select('*', { count: 'exact', head: true }).eq('status', 'draft'),
+        supabase.from('tt_purchase_orders').select('*', { count: 'exact', head: true }).in('status', ['sent', 'partial']),
+        supabase.from('tt_sales_orders').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+        supabase.from('tt_sat_tickets').select('*', { count: 'exact', head: true }).in('status', ['open', 'in_progress']),
+      ])
+      setBadges({
+        quotes_draft: quotesRes.count || 0,
+        po_pending: poRes.count || 0,
+        so_open: soRes.count || 0,
+        sat_open: satRes.count || 0,
+      })
+    } catch {
+      // Silently handle errors
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchBadges()
+    const interval = setInterval(fetchBadges, 60000) // Refresh every minute
+    return () => clearInterval(interval)
+  }, [fetchBadges])
+
+  return badges
+}
+
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
+  const badges = useBadgeCounts()
 
   return (
-    <SidebarContext.Provider value={{ collapsed, setCollapsed, mobileOpen, setMobileOpen }}>
+    <SidebarContext.Provider value={{ collapsed, setCollapsed, mobileOpen, setMobileOpen, badges }}>
       {children}
     </SidebarContext.Provider>
   )
@@ -54,7 +90,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
 
 export function Sidebar() {
   const pathname = usePathname()
-  const { collapsed, setCollapsed, mobileOpen, setMobileOpen } = useSidebar()
+  const { collapsed, setCollapsed, mobileOpen, setMobileOpen, badges } = useSidebar()
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
