@@ -159,7 +159,12 @@ export function Sidebar() {
                 )}
                 <Icon size={20} className="shrink-0" />
                 {!collapsed && (
-                  <span className="text-sm font-medium truncate">{item.label}</span>
+                  <span className="text-sm font-medium truncate flex-1">{item.label}</span>
+                )}
+                {!collapsed && (item as { badgeKey?: string }).badgeKey && badges[(item as { badgeKey?: string }).badgeKey!] > 0 && (
+                  <span className="ml-auto px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-[#FF6600] text-white min-w-[20px] text-center">
+                    {badges[(item as { badgeKey?: string }).badgeKey!]}
+                  </span>
                 )}
                 {collapsed && (
                   <div className="absolute left-full ml-2 px-2 py-1 bg-[#1E2330] text-[#F0F2F5] text-xs rounded-md opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all whitespace-nowrap z-50 shadow-xl border border-[#2A3040]">
