@@ -13,6 +13,7 @@ import { KPICard } from '@/components/ui/kpi-card'
 import { Tabs } from '@/components/ui/tabs'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
+import { ExportButton } from '@/components/ui/export-button'
 import { Package, Grid3X3, List, Loader2, ShoppingCart, Tag, Award, DollarSign } from 'lucide-react'
 
 type Row = Record<string, unknown>
@@ -84,6 +85,22 @@ function ProductosTab() {
       <div className="flex items-center justify-between">
         <p className="text-[#6B7280]">{loading ? 'Buscando...' : `${totalCount.toLocaleString('es-AR')} productos`}</p>
         <div className="flex items-center gap-2">
+          <ExportButton
+            data={products as unknown as Record<string, unknown>[]}
+            filename="productos_torquetools"
+            columns={[
+              { key: 'sku', label: 'SKU' },
+              { key: 'name', label: 'Nombre' },
+              { key: 'brand', label: 'Marca' },
+              { key: 'category', label: 'Categoria' },
+              { key: 'price_eur', label: 'Precio EUR' },
+              { key: 'cost_eur', label: 'Costo EUR' },
+              { key: 'torque_min', label: 'Torque Min' },
+              { key: 'torque_max', label: 'Torque Max' },
+              { key: 'rpm', label: 'RPM' },
+              { key: 'encastre', label: 'Encastre' },
+            ]}
+          />
           <Button variant={viewMode === 'grid' ? 'primary' : 'secondary'} size="icon" onClick={() => setViewMode('grid')}><Grid3X3 size={16} /></Button>
           <Button variant={viewMode === 'list' ? 'primary' : 'secondary'} size="icon" onClick={() => setViewMode('list')}><List size={16} /></Button>
         </div>

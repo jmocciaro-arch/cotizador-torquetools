@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate, formatRelative, CRM_STAGES } from '@/lib/utils'
 import type { Opportunity, Client, User } from '@/types'
+import { ExportButton } from '@/components/ui/export-button'
 import {
   Plus, Target, Calendar, User as UserIcon, GripVertical, Save,
   Loader2, Activity, BarChart3, TrendingUp, PieChart, DollarSign
@@ -111,7 +112,22 @@ function PipelineTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <p className="text-[#6B7280]">{opportunities.length} oportunidades - Valor ponderado: <span className="text-[#FF6600] font-semibold">{formatCurrency(pipelineTotal, 'EUR')}</span></p>
-        <Button variant="primary" onClick={() => setShowNew(true)}><Plus size={16} /> Nueva Oportunidad</Button>
+        <div className="flex items-center gap-2">
+          <ExportButton
+            data={opportunities as unknown as Record<string, unknown>[]}
+            filename="oportunidades_torquetools"
+            columns={[
+              { key: 'title', label: 'Titulo' },
+              { key: 'stage', label: 'Etapa' },
+              { key: 'expected_value', label: 'Valor Esperado' },
+              { key: 'probability', label: 'Probabilidad %' },
+              { key: 'expected_close', label: 'Cierre Esperado' },
+              { key: 'notes', label: 'Notas' },
+              { key: 'created_at', label: 'Creado' },
+            ]}
+          />
+          <Button variant="primary" onClick={() => setShowNew(true)}><Plus size={16} /> Nueva Oportunidad</Button>
+        </div>
       </div>
 
       <div className="flex gap-4 overflow-x-auto pb-4 -mx-4 px-4 lg:-mx-6 lg:px-6">

@@ -107,6 +107,12 @@ export interface Client {
   updated_at: string
   stelorder_id: string | null
   company_source: string | null
+  is_favorite: boolean
+  ranking_score: number
+  ranking_tier: string | null
+  total_revenue: number
+  total_orders: number
+  last_order_date: string | null
 }
 
 export interface ClientContact {
@@ -255,6 +261,37 @@ export interface Opportunity {
   // Joined
   client?: Client
   assignee?: User
+}
+
+export interface Supplier {
+  id: string
+  reference: string | null
+  legal_name: string | null
+  name: string
+  tax_id: string | null
+  email: string | null
+  phone: string | null
+  address: string | null
+  city: string | null
+  country: string | null
+  payment_terms: string | null
+  category: string | null
+  notes: string | null
+  active: boolean
+  source: string | null
+  created_at: string
+}
+
+export interface SupplierContact {
+  id: string
+  supplier_id: string
+  name: string
+  position: string | null
+  email: string | null
+  phone: string | null
+  whatsapp: string | null
+  is_primary: boolean
+  created_at: string
 }
 
 export interface PurchaseOrder {

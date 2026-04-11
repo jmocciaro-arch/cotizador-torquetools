@@ -16,6 +16,7 @@ import { formatCurrency, formatDate } from '@/lib/utils'
 import { DocumentDetailLayout, type WorkflowStep, type InternalNote } from '@/components/workflow/document-detail-layout'
 import { DocumentItemsTree, type DocumentItem, type DocumentItemComponent } from '@/components/workflow/document-items-tree'
 import { DocumentListCard } from '@/components/workflow/document-list-card'
+import { ExportButton } from '@/components/ui/export-button'
 import {
   Receipt, Plus, Loader2, FileText, Truck, CreditCard,
   Clock, ArrowRight, X, DollarSign,
@@ -185,6 +186,17 @@ function PresupuestosTab() {
         <div className="flex flex-col sm:flex-row gap-3">
           <SearchBar placeholder="Buscar presupuesto..." value={search} onChange={setSearch} className="flex-1" />
           <Select options={[{ value: '', label: 'Todos' }, ...Object.entries(QUOTE_STATUS).filter(([k]) => !['borrador', 'enviada', 'aceptada', 'rechazada'].includes(k)).map(([k, v]) => ({ value: k, label: v.label }))]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+          <ExportButton
+            data={quotes as Record<string, unknown>[]}
+            filename="presupuestos_torquetools"
+            columns={[
+              { key: 'doc_number', label: 'Numero' },
+              { key: 'status', label: 'Estado' },
+              { key: 'total', label: 'Total' },
+              { key: 'currency', label: 'Moneda' },
+              { key: 'created_at', label: 'Fecha' },
+            ]}
+          />
         </div>
       </div>
 
@@ -430,6 +442,17 @@ function PedidosTab() {
         <div className="flex flex-col sm:flex-row gap-3">
           <SearchBar placeholder="Buscar por nro de pedido..." value={search} onChange={setSearch} className="flex-1" />
           <Select options={[{ value: '', label: 'Todos' }, ...Object.entries(SO_STATUS).map(([k, v]) => ({ value: k, label: v.label }))]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+          <ExportButton
+            data={orders as Record<string, unknown>[]}
+            filename="pedidos_venta_torquetools"
+            columns={[
+              { key: 'doc_number', label: 'Numero' },
+              { key: 'status', label: 'Estado' },
+              { key: 'total', label: 'Total' },
+              { key: 'currency', label: 'Moneda' },
+              { key: 'created_at', label: 'Fecha' },
+            ]}
+          />
         </div>
       </div>
 
@@ -543,6 +566,16 @@ function AlbaranesTab() {
         <div className="flex flex-col sm:flex-row gap-3">
           <SearchBar placeholder="Buscar albaran..." value={search} onChange={setSearch} className="flex-1" />
           <Select options={[{ value: '', label: 'Todos' }, ...Object.entries(DN_STATUS).map(([k, v]) => ({ value: k, label: v.label }))]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+          <ExportButton
+            data={notes as Record<string, unknown>[]}
+            filename="albaranes_torquetools"
+            columns={[
+              { key: 'doc_number', label: 'Numero' },
+              { key: 'status', label: 'Estado' },
+              { key: 'total', label: 'Total' },
+              { key: 'created_at', label: 'Fecha' },
+            ]}
+          />
         </div>
       </div>
 
@@ -620,6 +653,17 @@ function FacturasTab() {
         <div className="flex flex-col sm:flex-row gap-3">
           <SearchBar placeholder="Buscar factura..." value={search} onChange={setSearch} className="flex-1" />
           <Select options={[{ value: '', label: 'Todas' }, ...Object.entries(INV_STATUS).map(([k, v]) => ({ value: k, label: v.label }))]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
+          <ExportButton
+            data={invoices as Record<string, unknown>[]}
+            filename="facturas_venta_torquetools"
+            columns={[
+              { key: 'doc_number', label: 'Numero' },
+              { key: 'status', label: 'Estado' },
+              { key: 'total', label: 'Total' },
+              { key: 'currency', label: 'Moneda' },
+              { key: 'created_at', label: 'Fecha' },
+            ]}
+          />
         </div>
       </div>
 
@@ -680,8 +724,19 @@ function CobrosTab() {
         <KPICard label="Total cobros" value={payments.length} icon={<DollarSign size={22} />} />
         <KPICard label="Monto total" value={formatCurrency(totalAmount)} icon={<CreditCard size={22} />} color="#10B981" />
       </div>
-      <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-3">
+      <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-3 flex gap-3 items-center">
         <SearchBar placeholder="Buscar cobro..." value={search} onChange={setSearch} className="flex-1" />
+        <ExportButton
+          data={payments as Record<string, unknown>[]}
+          filename="cobros_torquetools"
+          columns={[
+            { key: 'reference', label: 'Referencia' },
+            { key: 'amount', label: 'Monto' },
+            { key: 'method', label: 'Metodo' },
+            { key: 'status', label: 'Estado' },
+            { key: 'created_at', label: 'Fecha' },
+          ]}
+        />
       </div>
 
       {loading ? (

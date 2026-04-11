@@ -13,6 +13,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { SearchBar } from '@/components/ui/search-bar'
 import { useToast } from '@/components/ui/toast'
 import { formatDate, formatDateTime, formatRelative, getInitials } from '@/lib/utils'
+import { ExportButton } from '@/components/ui/export-button'
 import {
   Settings, Users, Building2, Sliders, Warehouse, Activity,
   Save, Plus, Loader2, ChevronLeft, ChevronRight, Edit, Shield,
@@ -410,7 +411,21 @@ export default function AdminPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Usuarios del sistema</CardTitle>
-                  <Button size="sm" onClick={openNewUser}><UserPlus size={14} /> Nuevo usuario</Button>
+                  <div className="flex gap-2">
+                    <ExportButton
+                      data={filteredUsers as Record<string, unknown>[]}
+                      filename="usuarios_torquetools"
+                      columns={[
+                        { key: 'username', label: 'Usuario' },
+                        { key: 'full_name', label: 'Nombre' },
+                        { key: 'email', label: 'Email' },
+                        { key: 'role', label: 'Rol' },
+                        { key: 'active', label: 'Activo' },
+                        { key: 'created_at', label: 'Creado' },
+                      ]}
+                    />
+                    <Button size="sm" onClick={openNewUser}><UserPlus size={14} /> Nuevo usuario</Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <SearchBar placeholder="Buscar usuario..." value={userSearch} onChange={setUserSearch} />
@@ -640,6 +655,16 @@ export default function AdminPage() {
               <Card>
                 <CardHeader>
                   <CardTitle>Log de auditoria</CardTitle>
+                  <ExportButton
+                    data={auditLogs as Record<string, unknown>[]}
+                    filename="auditoria_torquetools"
+                    columns={[
+                      { key: 'entity_type', label: 'Entidad' },
+                      { key: 'action', label: 'Accion' },
+                      { key: 'detail', label: 'Detalle' },
+                      { key: 'created_at', label: 'Fecha' },
+                    ]}
+                  />
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-3">

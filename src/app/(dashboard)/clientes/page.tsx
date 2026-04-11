@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency, formatDate, formatRelative, getInitials } from '@/lib/utils'
 import type { Client, ClientContact, GroupedCompany, ActivityLog } from '@/types'
+import { ExportButton } from '@/components/ui/export-button'
 import {
   Users, Plus, Phone, Mail, MessageSquare, MapPin,
   Building2, FileText, Edit3, Save, X, Loader2, UserPlus, Contact,
@@ -30,8 +31,12 @@ const PAGE_SIZE = 200
 const countryFlags: Record<string, string> = { ES: '\u{1F1EA}\u{1F1F8}', AR: '\u{1F1E6}\u{1F1F7}', US: '\u{1F1FA}\u{1F1F8}', CL: '\u{1F1E8}\u{1F1F1}', UY: '\u{1F1FA}\u{1F1FE}', BR: '\u{1F1E7}\u{1F1F7}', MX: '\u{1F1F2}\u{1F1FD}', CO: '\u{1F1E8}\u{1F1F4}', DE: '\u{1F1E9}\u{1F1EA}', FR: '\u{1F1EB}\u{1F1F7}', IT: '\u{1F1EE}\u{1F1F9}', GB: '\u{1F1EC}\u{1F1E7}', EC: '\u{1F1EA}\u{1F1E8}', PE: '\u{1F1F5}\u{1F1EA}', PY: '\u{1F1F5}\u{1F1FE}', BO: '\u{1F1E7}\u{1F1F4}', VE: '\u{1F1FB}\u{1F1EA}', CR: '\u{1F1E8}\u{1F1F7}', PA: '\u{1F1F5}\u{1F1E6}', DO: '\u{1F1E9}\u{1F1F4}', GT: '\u{1F1EC}\u{1F1F9}', HN: '\u{1F1ED}\u{1F1F3}', SV: '\u{1F1F8}\u{1F1FB}', NI: '\u{1F1F3}\u{1F1EE}', PT: '\u{1F1F5}\u{1F1F9}' }
 const countryNames: Record<string, string> = { ES: 'Espana', AR: 'Argentina', US: 'Estados Unidos', CL: 'Chile', UY: 'Uruguay', BR: 'Brasil', MX: 'Mexico', CO: 'Colombia', DE: 'Alemania', EC: 'Ecuador', PE: 'Peru', PY: 'Paraguay', FR: 'Francia', IT: 'Italia', GB: 'Reino Unido', PT: 'Portugal' }
 
+import { Trophy, StarOff } from 'lucide-react'
+
 const clientesTabs = [
   { id: 'clientes', label: 'Clientes', icon: <Building2 size={16} /> },
+  { id: 'favoritos', label: 'Favoritos', icon: <Star size={16} /> },
+  { id: 'ranking', label: 'Ranking', icon: <Trophy size={16} /> },
   { id: 'potenciales', label: 'Potenciales', icon: <UserPlus size={16} /> },
   { id: 'contactos', label: 'Contactos', icon: <Contact size={16} /> },
 ]
@@ -726,6 +731,14 @@ function ClientesTab() {
   const [savingNew, setSavingNew] = useState(false)
   const [displayCount, setDisplayCount] = useState(60)
 
+  async function toggleFavorite(clientId: string, isFavorite: boolean) {
+    const supabase = createClient()
+    await supabase.from('tt_clients').update({ is_favorite: isFavorite }).eq('id', clientId)
+    // Update local state
+    setAllClients(prev => prev.map(c => c.id === clientId ? { ...c, is_favorite: isFavorite } as Client : c))
+    addToast({ type: 'success', title: isFavorite ? '⭐ Agregado a favoritos' : 'Quitado de favoritos' })
+  }
+
   const loadClients = useCallback(async () => {
     setLoading(true)
     const supabase = createClient()
@@ -841,7 +854,22 @@ function ClientesTab() {
       </div>
 
       {/* Actions */}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <ExportButton
+          data={companies as unknown as Record<string, unknown>[]}
+          filename="clientes_torquetools"
+          columns={[
+            { key: 'legal_name', label: 'Razon Social' },
+            { key: 'tax_id', label: 'CUIT/CIF' },
+            { key: 'email', label: 'Email' },
+            { key: 'phone', label: 'Telefono' },
+            { key: 'country', label: 'Pais' },
+            { key: 'city', label: 'Ciudad' },
+            { key: 'category', label: 'Categoria' },
+            { key: 'payment_terms', label: 'Condiciones Pago' },
+            { key: 'contactCount', label: 'Contactos' },
+          ]}
+        />
         <Button variant="primary" onClick={() => setShowNew(true)}><Plus size={16} /> Nueva Empresa</Button>
       </div>
 
@@ -890,7 +918,10 @@ function ClientesTab() {
                       {company.tax_id && <p className="text-xs font-mono text-[#6B7280] truncate">{company.tax_id}</p>}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={(e) => { e.stopPropagation(); const rec = company.records[0] as unknown as Record<string, unknown>; toggleFavorite(company.id, !rec?.is_favorite) }} className="p-1 hover:scale-110 transition-transform" title="Favorito">
+                      <Star size={16} className={(company.records[0] as unknown as Record<string, unknown>)?.is_favorite ? 'text-yellow-400 fill-yellow-400' : 'text-[#4B5563]'} />
+                    </button>
                     <span className="text-lg">{countryFlags[company.country] || company.country}</span>
                     <ChevronRight size={14} className="text-[#4B5563]" />
                   </div>
@@ -1180,6 +1211,178 @@ function ContactosTab() {
 }
 
 // ═══════════════════════════════════════════════════════
+// FAVORITOS TAB
+// ═══════════════════════════════════════════════════════
+
+function FavoritosTab() {
+  const [favorites, setFavorites] = useState<GroupedCompany[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedCompany, setSelectedCompany] = useState<GroupedCompany | null>(null)
+
+  useEffect(() => { loadFavorites() }, [])
+
+  async function loadFavorites() {
+    const supabase = createClient()
+    setLoading(true)
+    const { data } = await supabase.from('tt_clients').select('*').eq('active', true).eq('is_favorite', true).order('legal_name')
+    const grouped = groupClientsByCompany((data || []) as Client[])
+    setFavorites(grouped)
+    setLoading(false)
+  }
+
+  async function removeFavorite(companyId: string) {
+    const supabase = createClient()
+    await supabase.from('tt_clients').update({ is_favorite: false }).eq('id', companyId)
+    loadFavorites()
+  }
+
+  if (selectedCompany) {
+    return <CompanyDetail company={selectedCompany} onClose={() => { setSelectedCompany(null); loadFavorites() }} onUpdate={loadFavorites} />
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Star className="text-yellow-400" size={20} fill="currentColor" />
+        <h3 className="text-lg font-semibold text-[#F0F2F5]">Clientes favoritos</h3>
+        <Badge>{favorites.length}</Badge>
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
+      ) : favorites.length === 0 ? (
+        <Card className="p-10 text-center">
+          <StarOff className="mx-auto mb-3 text-[#4B5563]" size={40} />
+          <p className="text-[#6B7280]">No tenés clientes favoritos todavía</p>
+          <p className="text-sm text-[#4B5563] mt-1">Marcá clientes con la ⭐ para verlos acá</p>
+        </Card>
+      ) : (
+        <div className="grid gap-3">
+          {favorites.map(c => (
+            <Card key={c.id} className="p-4 hover:border-[#FF6600]/30 cursor-pointer transition-all" onClick={() => setSelectedCompany(c)}>
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-xl bg-yellow-500/10 flex items-center justify-center text-yellow-400 font-bold text-lg flex-shrink-0">
+                  {getInitials(c.legal_name || c.name)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-bold text-[#F0F2F5] truncate">{c.legal_name || c.name}</div>
+                  <div className="text-sm text-[#6B7280]">{c.email || ''} · {c.country || ''}</div>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); removeFavorite(c.id) }} className="p-2 text-yellow-400 hover:text-yellow-300" title="Quitar de favoritos">
+                  <Star size={18} fill="currentColor" />
+                </button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════
+// RANKING TAB
+// ═══════════════════════════════════════════════════════
+
+function RankingTab() {
+  const [clients, setClients] = useState<(Client & { rank: number })[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { loadRanking() }, [])
+
+  async function loadRanking() {
+    const supabase = createClient()
+    setLoading(true)
+    const { data } = await supabase.from('tt_clients').select('*').eq('active', true).order('total_revenue', { ascending: false, nullsFirst: false }).limit(50)
+    const ranked = (data || []).map((c: Record<string, unknown>, i: number) => ({ ...c, rank: i + 1 })) as (Client & { rank: number })[]
+    setClients(ranked)
+    setLoading(false)
+  }
+
+  function tierBadge(rank: number) {
+    if (rank <= 3) return <span className="text-2xl">🥇</span>
+    if (rank <= 10) return <span className="text-xl">🥈</span>
+    if (rank <= 25) return <span className="text-lg">🥉</span>
+    return <span className="text-[#4B5563] font-mono text-sm">#{rank}</span>
+  }
+
+  function tierColor(rank: number) {
+    if (rank <= 3) return 'border-yellow-500/30 bg-yellow-500/5'
+    if (rank <= 10) return 'border-gray-400/20 bg-gray-400/5'
+    if (rank <= 25) return 'border-orange-700/20 bg-orange-700/5'
+    return ''
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <Trophy className="text-yellow-400" size={20} />
+        <h3 className="text-lg font-semibold text-[#F0F2F5]">Top clientes por facturación</h3>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <KPICard label="Top 3 facturación" value={formatCurrency(clients.slice(0, 3).reduce((s, c) => s + (c.total_revenue || 0), 0), 'EUR')} icon={<Trophy size={20} />} color="#FFD700" />
+        <KPICard label="Top 10 facturación" value={formatCurrency(clients.slice(0, 10).reduce((s, c) => s + (c.total_revenue || 0), 0), 'EUR')} icon={<Trophy size={20} />} color="#C0C0C0" />
+        <KPICard label="Total ranking (50)" value={formatCurrency(clients.reduce((s, c) => s + (c.total_revenue || 0), 0), 'EUR')} icon={<Trophy size={20} />} color="#CD7F32" />
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
+      ) : clients.length === 0 ? (
+        <Card className="p-10 text-center">
+          <Trophy className="mx-auto mb-3 text-[#4B5563]" size={40} />
+          <p className="text-[#6B7280]">No hay datos de facturación para generar ranking</p>
+          <p className="text-sm text-[#4B5563] mt-1">El ranking se genera automáticamente a partir de las facturas</p>
+        </Card>
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-16">#</TableHead>
+                <TableHead>Cliente</TableHead>
+                <TableHead>País</TableHead>
+                <TableHead className="text-right">Facturación total</TableHead>
+                <TableHead className="text-right">Pedidos</TableHead>
+                <TableHead>Última compra</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {clients.map(c => (
+                <TableRow key={c.id} className={`${tierColor(c.rank)} transition-all`}>
+                  <TableCell className="text-center">{tierBadge(c.rank)}</TableCell>
+                  <TableCell>
+                    <div className="font-semibold text-[#F0F2F5]">{c.legal_name || c.name}</div>
+                    <div className="text-xs text-[#6B7280]">{c.tax_id || ''}</div>
+                  </TableCell>
+                  <TableCell>{c.country || '-'}</TableCell>
+                  <TableCell className="text-right font-bold text-[#FF6600]">{formatCurrency(c.total_revenue || 0, 'EUR')}</TableCell>
+                  <TableCell className="text-right">{c.total_orders || 0}</TableCell>
+                  <TableCell className="text-[#6B7280]">{c.last_order_date ? formatDate(c.last_order_date) : '-'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <ExportButton
+            data={clients.map(c => ({ rank: c.rank, cliente: c.legal_name || c.name, cuit: c.tax_id, pais: c.country, facturacion: c.total_revenue, pedidos: c.total_orders, ultima_compra: c.last_order_date }))}
+            filename="ranking_clientes"
+            columns={[
+              { key: 'rank', label: 'Ranking' },
+              { key: 'cliente', label: 'Cliente' },
+              { key: 'cuit', label: 'CUIT/CIF' },
+              { key: 'pais', label: 'País' },
+              { key: 'facturacion', label: 'Facturación EUR' },
+              { key: 'pedidos', label: 'Pedidos' },
+              { key: 'ultima_compra', label: 'Última compra' },
+            ]}
+            className="p-3"
+          />
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════
 // MAIN PAGE
 // ═══════════════════════════════════════════════════════
 
@@ -1195,6 +1398,8 @@ export default function ClientesPage() {
           {(activeTab) => (
             <>
               {activeTab === 'clientes' && <ClientesTab />}
+              {activeTab === 'favoritos' && <FavoritosTab />}
+              {activeTab === 'ranking' && <RankingTab />}
               {activeTab === 'potenciales' && <PotencialesTab />}
               {activeTab === 'contactos' && <ContactosTab />}
             </>

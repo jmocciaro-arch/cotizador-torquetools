@@ -14,6 +14,7 @@ import { KPICard } from '@/components/ui/kpi-card'
 import { Tabs } from '@/components/ui/tabs'
 import { useToast } from '@/components/ui/toast'
 import { formatDate, formatRelative } from '@/lib/utils'
+import { ExportButton } from '@/components/ui/export-button'
 import {
   Wrench, Plus, Eye, Loader2, AlertTriangle, Clock, CheckCircle,
   User, MapPin, Package, ClipboardList, Cpu, QrCode
@@ -118,7 +119,22 @@ function IncidenciasTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button onClick={() => { setShowCreate(true); loadFormData() }}><Plus size={16} /> Nuevo Ticket</Button></div>
+      <div className="flex justify-end gap-2">
+        <ExportButton
+          data={tickets as Record<string, unknown>[]}
+          filename="tickets_sat_torquetools"
+          columns={[
+            { key: 'ticket_number', label: 'Numero' },
+            { key: 'description', label: 'Descripcion' },
+            { key: 'status', label: 'Estado' },
+            { key: 'priority', label: 'Prioridad' },
+            { key: 'serial_number', label: 'Nro Serie' },
+            { key: 'work_address', label: 'Direccion' },
+            { key: 'created_at', label: 'Fecha' },
+          ]}
+        />
+        <Button onClick={() => { setShowCreate(true); loadFormData() }}><Plus size={16} /> Nuevo Ticket</Button>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard label="Total tickets" value={tickets.length} icon={<Wrench size={22} />} />
         <KPICard label="Abiertos" value={openCount} icon={<Clock size={22} />} color="#3B82F6" />

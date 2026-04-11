@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/client'
 import { formatDate, formatCurrency } from '@/lib/utils'
 import type { Warehouse } from '@/types'
+import { ExportButton } from '@/components/ui/export-button'
 import {
   Package, AlertTriangle, XCircle, CheckCircle, Loader2,
   ArrowLeftRight, Warehouse as WarehouseIcon, Activity, TrendingUp
@@ -102,6 +103,19 @@ function InventarioTab() {
           <div className="flex flex-wrap gap-2">
             <Select value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)} options={warehouses.map((w) => ({ value: w.id, label: `${w.name} (${w.code})` }))} placeholder="Todos los almacenes" />
             <Select value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} options={brands.map((b) => ({ value: b, label: b }))} placeholder="Todas las marcas" />
+            <ExportButton
+              data={stockItems as unknown as Record<string, unknown>[]}
+              filename="stock_torquetools"
+              columns={[
+                { key: 'product_sku', label: 'SKU' },
+                { key: 'product_name', label: 'Producto' },
+                { key: 'product_brand', label: 'Marca' },
+                { key: 'warehouse_name', label: 'Almacen' },
+                { key: 'quantity', label: 'Cantidad' },
+                { key: 'reserved', label: 'Reservado' },
+                { key: 'min_quantity', label: 'Stock Minimo' },
+              ]}
+            />
           </div>
         </div>
       </Card>
