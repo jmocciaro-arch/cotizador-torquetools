@@ -24,7 +24,8 @@ import {
   Building2, Phone, Mail, MessageSquare, MapPin, Globe,
   Hash, ArrowLeft, Edit3, Save, Trash2, Star, ChevronRight,
   Contact, CreditCard, CalendarDays, AlertTriangle, Banknote,
-  Receipt, ArrowUpRight, CalendarClock, CircleDollarSign
+  Receipt, ArrowUpRight, CalendarClock, CircleDollarSign,
+  Layers, ArrowRightLeft
 } from 'lucide-react'
 
 type Row = Record<string, unknown>
@@ -52,6 +53,7 @@ const comprasTabs = [
   { id: 'facturas', label: 'Facturas compra', icon: <FileCheck size={16} /> },
   { id: 'pagos', label: 'Pagos', icon: <CreditCard size={16} /> },
   { id: 'calendario', label: 'Calendario pagos', icon: <CalendarDays size={16} /> },
+  { id: 'intercompany', label: 'Intercompany', icon: <ArrowRightLeft size={16} /> },
 ]
 
 // ===============================================================
@@ -1869,6 +1871,411 @@ function CalendarioPagosTab() {
 }
 
 // ===============================================================
+// INTERCOMPANY TAB
+// ===============================================================
+function IntercompanyTab() {
+  const [relations, setRelations] = useState<Row[]>([])
+  const [documents, setDocuments] = useState<{ purchaseOrders: Row[]; salesOrders: Row[] }>({ purchaseOrders: [], salesOrders: [] })
+  const [loading, setLoading] = useState(true)
+  const [showNewOrder, setShowNewOrder] = useState(false)
+  const [sellers, setSellers] = useState<Row[]>([])
+  const [selectedSeller, setSelectedSeller] = useState('')
+  const [icItems, setIcItems] = useState<{ description: string; quantity: number; unit_price: number; sku: string }[]>([])
+  const [icNotes, setIcNotes] = useState('')
+  const [creating, setCreating] = useState(false)
+  const { addToast } = useToast()
+
+  const fetchData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const supabase = createClient()
+
+      // Get all intercompany relations
+      const { data: rels } = await supabase
+        .from('tt_intercompany_relations')
+        .select(`
+          *,
+          buyer_company:tt_companies!buyer_company_id(id, name, country, currency),
+          seller_company:tt_companies!seller_company_id(id, name, country, currency)
+        `)
+        .eq('active', true)
+
+      setRelations(rels || [])
+
+      // Get intercompany document links
+      const { data: links } = await supabase
+        .from('tt_document_links')
+        .select('*')
+        .eq('relation_type', 'intercompany')
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      if (links && links.length > 0) {
+        const poIds = links.filter((l: Row) => l.source_type === 'purchase_order').map((l: Row) => l.source_id as string)
+        const soIds = links.filter((l: Row) => l.target_type === 'sales_order').map((l: Row) => l.target_id as string)
+
+        const [posRes, sosRes] = await Promise.all([
+          poIds.length > 0
+            ? supabase.from('tt_purchase_orders').select('*').in('id', poIds).order('created_at', { ascending: false })
+            : Promise.resolve({ data: [] }),
+          soIds.length > 0
+            ? supabase.from('tt_sales_orders').select('*').in('id', soIds).order('created_at', { ascending: false })
+            : Promise.resolve({ data: [] }),
+        ])
+
+        setDocuments({
+          purchaseOrders: posRes.data || [],
+          salesOrders: sosRes.data || [],
+        })
+      }
+    } catch {
+      // Silent
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  // Fetch available sellers when opening new order form
+  const handleNewOrder = async () => {
+    setShowNewOrder(true)
+    try {
+      const supabase = createClient()
+      const { data } = await supabase
+        .from('tt_intercompany_relations')
+        .select(`
+          *,
+          seller_company:tt_companies!seller_company_id(id, name, country, currency)
+        `)
+        .eq('active', true)
+
+      setSellers(data || [])
+      setIcItems([{ description: '', quantity: 1, unit_price: 0, sku: '' }])
+    } catch {
+      // Silent
+    }
+  }
+
+  const addItem = () => {
+    setIcItems(prev => [...prev, { description: '', quantity: 1, unit_price: 0, sku: '' }])
+  }
+
+  const removeItem = (idx: number) => {
+    setIcItems(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const updateItem = (idx: number, field: string, value: string | number) => {
+    setIcItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item))
+  }
+
+  const handleCreateOrder = async () => {
+    if (!selectedSeller || icItems.length === 0 || icItems.some(i => !i.description)) {
+      addToast({ title: 'Completa todos los campos', type: 'warning' })
+      return
+    }
+
+    setCreating(true)
+    try {
+      const { createIntercompanyPurchase } = await import('@/lib/intercompany')
+
+      // For now, use the first buyer relation
+      const sellerRel = sellers.find((s: Row) => (s.seller_company as Row)?.id === selectedSeller)
+      if (!sellerRel) throw new Error('Relacion no encontrada')
+
+      const result = await createIntercompanyPurchase(
+        sellerRel.buyer_company_id as string,
+        selectedSeller,
+        icItems.map(i => ({
+          product_id: null,
+          sku: i.sku || null,
+          description: i.description,
+          quantity: i.quantity,
+          unit_price: i.unit_price,
+        })),
+        icNotes
+      )
+
+      addToast({ title: `OC ${result.purchaseOrderNumber} y Pedido ${result.salesOrderNumber} creados`, type: 'success' })
+      setShowNewOrder(false)
+      setSelectedSeller('')
+      setIcItems([])
+      setIcNotes('')
+      fetchData()
+    } catch (err) {
+      addToast({ title: `Error: ${err instanceof Error ? err.message : 'Error desconocido'}`, type: 'error' })
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const COUNTRY_FLAGS: Record<string, string> = { ES: '\u{1F1EA}\u{1F1F8}', US: '\u{1F1FA}\u{1F1F8}', AR: '\u{1F1E6}\u{1F1F7}' }
+  const getFlag = (code: string) => COUNTRY_FLAGS[code] || '\u{1F3F3}\u{FE0F}'
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader2 className="animate-spin text-[#FF6600]" size={32} />
+      </div>
+    )
+  }
+
+  const icTotal = icItems.reduce((sum, i) => sum + i.quantity * i.unit_price, 0)
+  const sellerInfo = sellers.find((s: Row) => (s.seller_company as Row)?.id === selectedSeller)
+  const sellerCurrency = sellerInfo ? (sellerInfo.default_currency as string) || ((sellerInfo.seller_company as Row)?.currency as string) || 'EUR' : 'EUR'
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center">
+            <ArrowRightLeft size={20} className="text-violet-400" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-[#F0F2F5]">Operaciones Intercompany</h2>
+            <p className="text-xs text-[#6B7280]">Compras y ventas entre empresas del grupo</p>
+          </div>
+        </div>
+        <Button onClick={handleNewOrder} className="gap-2">
+          <Plus size={16} />
+          Nueva OC Intercompany
+        </Button>
+      </div>
+
+      {/* Relations overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {relations.map((rel: Row) => {
+          const buyer = rel.buyer_company as Row
+          const seller = rel.seller_company as Row
+          return (
+            <Card key={rel.id as string} className="p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-lg">{getFlag(buyer?.country as string)}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[#F0F2F5] truncate">{buyer?.name as string}</p>
+                  <p className="text-[10px] text-[#6B7280]">Comprador</p>
+                </div>
+                <ArrowRightLeft size={16} className="text-violet-400 shrink-0" />
+                <div className="flex-1 min-w-0 text-right">
+                  <p className="text-sm font-medium text-[#F0F2F5] truncate">{seller?.name as string}</p>
+                  <p className="text-[10px] text-[#6B7280]">Vendedor</p>
+                </div>
+                <span className="text-lg">{getFlag(seller?.country as string)}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="info">{rel.default_currency as string}</Badge>
+                <Badge variant="default">{rel.default_incoterm as string}</Badge>
+                <span className="ml-auto px-2 py-0.5 text-[9px] font-medium rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/25">
+                  Intercompany
+                </span>
+              </div>
+            </Card>
+          )
+        })}
+      </div>
+
+      {/* Documents history */}
+      {(documents.purchaseOrders.length > 0 || documents.salesOrders.length > 0) && (
+        <Card className="p-0">
+          <div className="px-4 py-3 border-b border-[#1E2330]">
+            <h3 className="text-sm font-semibold text-[#F0F2F5]">Historial de documentos intercompany</h3>
+          </div>
+          <div className="divide-y divide-[#1E2330]">
+            {documents.purchaseOrders.map((po: Row) => (
+              <div key={po.id as string} className="px-4 py-3 flex items-center gap-4 hover:bg-[#141820] transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <ShoppingCart size={14} className="text-blue-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-[#F0F2F5]">{po.po_number as string}</p>
+                    <span className="px-2 py-0.5 text-[9px] font-medium rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/25">
+                      IC-Compra
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#6B7280]">{po.supplier_name as string}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-[#F0F2F5]">
+                    {formatCurrency(po.total as number, (po.currency as string) as 'EUR' | 'USD' | 'ARS')}
+                  </p>
+                  <p className="text-[10px] text-[#6B7280]">{formatDate(po.created_at as string)}</p>
+                </div>
+                <Badge variant={PO_STATUS[po.status as string]?.variant || 'default'}>
+                  {PO_STATUS[po.status as string]?.label || (po.status as string)}
+                </Badge>
+              </div>
+            ))}
+            {documents.salesOrders.map((so: Row) => (
+              <div key={so.id as string} className="px-4 py-3 flex items-center gap-4 hover:bg-[#141820] transition-colors">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                  <FileText size={14} className="text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-[#F0F2F5]">{so.so_number as string}</p>
+                    <span className="px-2 py-0.5 text-[9px] font-medium rounded-full bg-violet-500/15 text-violet-400 border border-violet-500/25">
+                      IC-Venta
+                    </span>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-bold text-[#F0F2F5]">
+                    {formatCurrency(so.total as number, (so.currency as string) as 'EUR' | 'USD' | 'ARS')}
+                  </p>
+                  <p className="text-[10px] text-[#6B7280]">{formatDate(so.created_at as string)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {documents.purchaseOrders.length === 0 && documents.salesOrders.length === 0 && (
+        <Card className="p-10 text-center">
+          <Layers size={40} className="text-[#2A3040] mx-auto mb-3" />
+          <p className="text-sm text-[#6B7280]">No hay documentos intercompany todavia</p>
+          <p className="text-xs text-[#4A5060] mt-1">Crea una OC intercompany para empezar</p>
+        </Card>
+      )}
+
+      {/* New Intercompany Order Modal */}
+      <Modal
+        isOpen={showNewOrder}
+        onClose={() => setShowNewOrder(false)}
+        title="Nueva OC Intercompany"
+        size="lg"
+      >
+        <div className="space-y-4">
+          {/* Seller selection */}
+          <div>
+            <label className="text-xs text-[#6B7280] mb-1 block">Empresa vendedora</label>
+            <select
+              value={selectedSeller}
+              onChange={(e) => setSelectedSeller(e.target.value)}
+              className="w-full px-3 py-2 bg-[#0F1218] border border-[#1E2330] rounded-lg text-sm text-[#F0F2F5] focus:border-[#FF6600] focus:outline-none"
+            >
+              <option value="">Seleccionar empresa...</option>
+              {sellers.map((s: Row) => {
+                const comp = s.seller_company as Row
+                return (
+                  <option key={comp?.id as string} value={comp?.id as string}>
+                    {getFlag(comp?.country as string)} {comp?.name as string} ({s.default_currency as string})
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
+          {/* Items */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-[#6B7280]">Productos / Items</label>
+              <button onClick={addItem} className="text-xs text-[#FF6600] hover:text-[#FF8800]">
+                + Agregar item
+              </button>
+            </div>
+            <div className="space-y-2">
+              {icItems.map((item, idx) => (
+                <div key={idx} className="flex gap-2 items-start">
+                  <Input
+                    placeholder="SKU"
+                    value={item.sku}
+                    onChange={(e) => updateItem(idx, 'sku', e.target.value)}
+                    className="w-24"
+                  />
+                  <Input
+                    placeholder="Descripcion"
+                    value={item.description}
+                    onChange={(e) => updateItem(idx, 'description', e.target.value)}
+                    className="flex-1"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Cant."
+                    value={item.quantity || ''}
+                    onChange={(e) => updateItem(idx, 'quantity', Number(e.target.value))}
+                    className="w-20"
+                  />
+                  <Input
+                    type="number"
+                    placeholder="Precio"
+                    value={item.unit_price || ''}
+                    onChange={(e) => updateItem(idx, 'unit_price', Number(e.target.value))}
+                    className="w-28"
+                  />
+                  {icItems.length > 1 && (
+                    <button onClick={() => removeItem(idx)} className="p-2 text-[#6B7280] hover:text-red-400">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Total */}
+          {icTotal > 0 && (
+            <div className="flex justify-end">
+              <div className="bg-[#141820] px-4 py-2 rounded-lg border border-[#1E2330]">
+                <span className="text-xs text-[#6B7280] mr-3">Total:</span>
+                <span className="text-lg font-bold text-[#FF6600]">
+                  {formatCurrency(icTotal, sellerCurrency as 'EUR' | 'USD' | 'ARS')}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Notes */}
+          <div>
+            <label className="text-xs text-[#6B7280] mb-1 block">Notas</label>
+            <textarea
+              value={icNotes}
+              onChange={(e) => setIcNotes(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2 bg-[#0F1218] border border-[#1E2330] rounded-lg text-sm text-[#F0F2F5] focus:border-[#FF6600] focus:outline-none resize-none"
+              placeholder="Notas adicionales..."
+            />
+          </div>
+
+          {/* Info */}
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-violet-500/5 border border-violet-500/15">
+            <ArrowRightLeft size={14} className="text-violet-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-violet-300/80">
+              Al crear esta OC intercompany, se genera automaticamente un pedido de venta espejo
+              en la empresa vendedora. Ambos documentos quedan vinculados.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setShowNewOrder(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCreateOrder} disabled={creating || !selectedSeller}>
+              {creating ? (
+                <>
+                  <Loader2 size={14} className="animate-spin mr-2" />
+                  Creando...
+                </>
+              ) : (
+                <>
+                  <ArrowRightLeft size={14} className="mr-2" />
+                  Crear OC Intercompany
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+// ===============================================================
 // MAIN PAGE
 // ===============================================================
 export default function ComprasPage() {
@@ -1888,6 +2295,7 @@ export default function ComprasPage() {
               {activeTab === 'facturas' && <FacturasCompraTab />}
               {activeTab === 'pagos' && <PagosTab />}
               {activeTab === 'calendario' && <CalendarioPagosTab />}
+              {activeTab === 'intercompany' && <IntercompanyTab />}
             </>
           )}
         </Tabs>

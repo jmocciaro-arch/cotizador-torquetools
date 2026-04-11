@@ -2,6 +2,7 @@
 
 import { SidebarProvider, Sidebar, TopBar, MobileNav, useSidebar } from '@/components/ui/sidebar'
 import { ToastProvider } from '@/components/ui/toast'
+import { CompanyProvider } from '@/lib/company-context'
 import { cn } from '@/lib/utils'
 
 function DashboardInner({ children }: { children: React.ReactNode }) {
@@ -33,9 +34,11 @@ export default function DashboardLayout({
 }) {
   return (
     <ToastProvider>
-      <SidebarProvider>
-        <DashboardInner>{children}</DashboardInner>
-      </SidebarProvider>
+      <CompanyProvider>
+        <SidebarProvider>
+          <DashboardInner>{children}</DashboardInner>
+        </SidebarProvider>
+      </CompanyProvider>
     </ToastProvider>
   )
 }

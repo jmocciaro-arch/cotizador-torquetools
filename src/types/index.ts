@@ -467,6 +467,51 @@ export interface SystemParam {
 }
 
 // =====================================================
+// Multi-Company Types
+// =====================================================
+
+export interface UserCompany {
+  id: string
+  user_id: string
+  company_id: string
+  is_default: boolean
+  can_sell: boolean
+  can_buy: boolean
+  created_at: string
+  // Joined
+  company?: Company
+}
+
+export interface IntercompanyRelation {
+  id: string
+  buyer_company_id: string
+  seller_company_id: string
+  active: boolean
+  default_currency: string
+  default_incoterm: string
+  notes: string | null
+  created_at: string
+  // Joined
+  buyer_company?: Company
+  seller_company?: Company
+}
+
+export type CompanyType = 'internal' | 'external'
+
+/** Country flag + metadata for company display */
+export interface CompanyDisplay {
+  id: string
+  name: string
+  country: string
+  currency: string
+  flag: string
+  company_type: CompanyType
+  is_default: boolean
+  can_sell: boolean
+  can_buy: boolean
+}
+
+// =====================================================
 // UI / Helper Types
 // =====================================================
 

@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { usePermissions } from '@/hooks/use-permissions'
+import { CompanySelector } from '@/components/ui/company-selector'
 
 interface SidebarContextType {
   collapsed: boolean
@@ -106,8 +107,14 @@ export function Sidebar() {
 
   const isActive = (href: string) => {
     const basePath = href.split('?')[0]
+    const hrefTab = new URLSearchParams(href.split('?')[1] || '').get('tab')
     if (basePath === '/') return pathname === '/'
-    return pathname.startsWith(basePath)
+    if (!pathname.startsWith(basePath)) return false
+    if (hrefTab) {
+      const currentTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
+      return currentTab === hrefTab
+    }
+    return pathname === basePath
   }
 
   // Filter nav items based on permissions
@@ -146,7 +153,7 @@ export function Sidebar() {
           {!collapsed && (
             <div className="overflow-hidden">
               <h1 className="text-[#F0F2F5] font-bold text-sm leading-tight truncate">TorqueTools</h1>
-              <p className="text-[10px] text-[#6B7280] truncate">ERP / CRM</p>
+              <p className="text-[10px] text-[#6B7280] truncate">Mocciaro Soft</p>
             </div>
           )}
           {/* Mobile close */}
@@ -218,8 +225,14 @@ export function MobileNav() {
 
   const isActive = (href: string) => {
     const basePath = href.split('?')[0]
+    const hrefTab = new URLSearchParams(href.split('?')[1] || '').get('tab')
     if (basePath === '/') return pathname === '/'
-    return pathname.startsWith(basePath)
+    if (!pathname.startsWith(basePath)) return false
+    if (hrefTab) {
+      const currentTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
+      return currentTab === hrefTab
+    }
+    return pathname === basePath
   }
 
   return (
@@ -262,6 +275,10 @@ export function TopBar({ userName }: { userName?: string }) {
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Company selector */}
+        <CompanySelector />
+
+        {/* User info */}
         <div className="text-right hidden sm:block">
           <p className="text-sm font-medium text-[#F0F2F5]">{userName || 'Usuario'}</p>
           <p className="text-[10px] text-[#6B7280]">TorqueTools</p>

@@ -1,7 +1,7 @@
 'use client';
 
 // ============================================================================
-// TorqueTools ERP — Install PWA Banner
+// Mocciaro Soft — Install PWA Banner
 // Banner para instalar la app como PWA
 // ============================================================================
 

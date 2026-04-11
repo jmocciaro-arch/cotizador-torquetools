@@ -49,7 +49,7 @@ export function WidgetWelcome() {
       <div>
         <h2 className="text-xl font-bold text-[#F0F2F5]">{greeting}, Juan</h2>
         <p className="text-xs text-[#6B7280] mt-0.5 capitalize">{dateStr}</p>
-        <p className="text-[11px] text-[#4B5563] mt-1">TorqueTools ERP &middot; Administrador</p>
+        <p className="text-[11px] text-[#4B5563] mt-1">Mocciaro Soft &middot; Administrador</p>
       </div>
 
       {!loading && (

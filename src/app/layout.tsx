@@ -9,8 +9,8 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'TorqueTools ERP | Sistema de Gestión Integral',
-  description: 'ERP/CRM para gestión de herramientas industriales - TorqueTools Group',
+  title: 'Mocciaro Soft | Sistema de Gestión Integral',
+  description: 'ERP/CRM para gestión de herramientas industriales - Grupo Mocciaro',
   icons: { icon: '/favicon.ico' },
 }
 
