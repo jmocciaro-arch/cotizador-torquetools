@@ -6,7 +6,8 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, FileText, Package, Users, Warehouse, Target,
   ShoppingCart, Receipt, Wrench, Calendar, Mail, Settings,
-  ChevronLeft, ChevronRight, Menu, X, LogOut
+  ChevronLeft, ChevronRight, Menu, X, LogOut, ClipboardList,
+  Truck, CreditCard, Building2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -31,16 +32,17 @@ export const useSidebar = () => useContext(SidebarContext)
 
 const navItems = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { label: 'Leads', href: '/crm', icon: Target },
   { label: 'Cotizador', href: '/cotizador', icon: FileText, badgeKey: 'quotes_draft' },
-  { label: 'Catálogo', href: '/catalogo', icon: Package },
-  { label: 'Clientes', href: '/clientes', icon: Users },
-  { label: 'Stock', href: '/stock', icon: Warehouse },
-  { label: 'CRM', href: '/crm', icon: Target },
+  { label: 'Pedidos', href: '/documentos/demo', icon: ClipboardList, badgeKey: 'so_open' },
+  { label: 'Albaranes', href: '/ventas', icon: Truck },
+  { label: 'Facturas', href: '/admin', icon: CreditCard },
   { label: 'Compras', href: '/compras', icon: ShoppingCart, badgeKey: 'po_pending' },
-  { label: 'Ventas', href: '/ventas', icon: Receipt, badgeKey: 'so_open' },
+  { label: 'Stock', href: '/stock', icon: Warehouse },
+  { label: 'Proveedores', href: '/compras', icon: Building2 },
+  { label: 'Clientes', href: '/clientes', icon: Users },
+  { label: 'Catalogo', href: '/catalogo', icon: Package },
   { label: 'SAT', href: '/sat', icon: Wrench, badgeKey: 'sat_open' },
-  { label: 'Calendario', href: '/calendario', icon: Calendar },
-  { label: 'Mail', href: '/mail', icon: Mail },
   { label: 'Admin', href: '/admin', icon: Settings },
 ]
 
