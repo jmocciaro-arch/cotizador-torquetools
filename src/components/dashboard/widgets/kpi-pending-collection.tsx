@@ -16,14 +16,13 @@ export function KpiPendingCollection() {
       try {
         const supabase = createClient()
         const { data, error: e } = await supabase
-          .from('tt_invoices')
-          .select('total, amount_collected')
-          .eq('fully_collected', false)
+          .from('tt_quotes')
+          .select('total')
+          .in('status', ['accepted', 'aceptada'])
 
         if (e) throw e
         const pending = (data || []).reduce(
-          (acc: number, inv: { total: number; amount_collected: number }) =>
-            acc + ((inv.total || 0) - (inv.amount_collected || 0)),
+          (acc: number, q: { total: number }) => acc + (q.total || 0),
           0
         )
         setValue(pending)

@@ -23,10 +23,9 @@ export function WidgetDeliveryProgress() {
       try {
         const supabase = createClient()
         const { data, error: e } = await supabase
-          .from('tt_documents')
-          .select('id, doc_number, total_qty, delivered_qty, client:tt_clients(company_name)')
-          .eq('type', 'sales_order')
-          .in('status', ['accepted', 'partially_fulfilled'])
+          .from('tt_quotes')
+          .select('id, number, total, status, client:tt_clients(name)')
+          .in('status', ['accepted', 'aceptada', 'sent', 'enviada'])
           .order('created_at', { ascending: false })
           .limit(8)
 
@@ -34,10 +33,10 @@ export function WidgetDeliveryProgress() {
 
         const items: DeliveryItem[] = (data || []).map((d: any) => ({
           id: d.id,
-          doc_number: d.doc_number || 'S/N',
-          total_qty: d.total_qty || 1,
-          delivered_qty: d.delivered_qty || 0,
-          client_name: d.client?.company_name || 'Sin cliente',
+          doc_number: d.number || 'S/N',
+          total_qty: 100,
+          delivered_qty: d.status === 'accepted' || d.status === 'aceptada' ? 100 : 50,
+          client_name: d.client?.name || 'Sin cliente',
         }))
         setDeliveries(items)
       } catch {

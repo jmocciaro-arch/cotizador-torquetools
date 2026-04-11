@@ -74,9 +74,9 @@ function IncidenciasTab() {
 
   const loadFormData = async () => {
     const [{ data: cl }, { data: pr }, { data: us }] = await Promise.all([
-      supabase.from('tt_clients').select('id, name').order('name').limit(500),
+      supabase.from('tt_clients').select('id, name').eq('active', true).order('name').limit(500),
       supabase.from('tt_products').select('id, sku, name').order('name').limit(500),
-      supabase.from('tt_users').select('id, name, email').order('name'),
+      supabase.from('tt_users').select('id, full_name, email').order('full_name'),
     ])
     setClients(cl || []); setAllProducts(pr || []); setUsers(us || [])
   }
@@ -165,7 +165,7 @@ function IncidenciasTab() {
           <Select label="Cliente *" options={clients.map(c => ({ value: c.id as string, label: c.name as string }))} value={form.client_id} onChange={(e) => setForm({ ...form, client_id: e.target.value })} placeholder="Selecciona un cliente" />
           <Select label="Producto / Equipo" options={allProducts.map(p => ({ value: p.id as string, label: `${p.sku || ''} - ${p.name}` }))} value={form.product_id} onChange={(e) => setForm({ ...form, product_id: e.target.value })} placeholder="Opcional" />
           <Input label="Nro de serie" value={form.serial_number} onChange={(e) => setForm({ ...form, serial_number: e.target.value })} />
-          <Select label="Tecnico asignado" options={users.map(u => ({ value: u.id as string, label: `${u.name} (${u.email})` }))} value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })} placeholder="Sin asignar" />
+          <Select label="Tecnico asignado" options={users.map(u => ({ value: u.id as string, label: `${u.full_name} (${u.email})` }))} value={form.assigned_to} onChange={(e) => setForm({ ...form, assigned_to: e.target.value })} placeholder="Sin asignar" />
           <Select label="Prioridad" options={Object.entries(PRIORITY_MAP).map(([k, v]) => ({ value: k, label: v.label }))} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })} />
           <div><label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">Descripcion del problema *</label>
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="w-full h-24 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 py-2 text-sm text-[#F0F2F5] placeholder:text-[#4B5563] focus:outline-none focus:ring-2 focus:ring-orange-500/50 resize-none" placeholder="Describi el problema..." />

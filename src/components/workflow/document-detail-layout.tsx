@@ -31,7 +31,7 @@ interface DocumentData {
 
 interface ClientData {
   id: string
-  company_name: string
+  name: string
   tax_id?: string
   country?: string
 }

@@ -53,8 +53,8 @@ function PipelineTab() {
   async function loadData() {
     const supabase = createClient(); setLoading(true)
     const [oppsRes, usersRes] = await Promise.all([
-      supabase.from('tt_opportunities').select('*, client:tt_clients(company_name), assignee:tt_users(full_name)').order('sort_order', { ascending: true }),
-      supabase.from('tt_users').select('*').eq('is_active', true),
+      supabase.from('tt_opportunities').select('*, client:tt_clients(name), assignee:tt_users(full_name)').order('created_at', { ascending: false }),
+      supabase.from('tt_users').select('*').eq('active', true),
     ])
     setOpportunities((oppsRes.data as unknown as Opportunity[]) || []); setUsers((usersRes.data as User[]) || []); setLoading(false)
   }
@@ -65,7 +65,7 @@ function PipelineTab() {
     if (clientDebounceRef.current) clearTimeout(clientDebounceRef.current)
     clientDebounceRef.current = setTimeout(async () => {
       const supabase = createClient()
-      const { data } = await supabase.from('tt_clients').select('id, company_name').ilike('company_name', `%${query}%`).limit(10)
+      const { data } = await supabase.from('tt_clients').select('id, name').ilike('name', `%${query}%`).limit(10)
       setClientSearchResults((data || []) as Client[]); setShowClientDropdown(true)
     }, 300)
   }
@@ -97,13 +97,13 @@ function PipelineTab() {
     if (!newOpp.title.trim()) { addToast({ type: 'error', title: 'El titulo es obligatorio' }); return }
     setSavingNew(true)
     const supabase = createClient()
-    const { error } = await supabase.from('tt_opportunities').insert({ title: newOpp.title, client_id: newOpp.client_id || null, stage: newOpp.stage, value: newOpp.value, currency: newOpp.currency, probability: newOpp.probability, assigned_to: newOpp.assigned_to || null, expected_close_date: newOpp.expected_close_date || null, notes: newOpp.notes || null, tags: [], sort_order: 0 })
+    const { error } = await supabase.from('tt_opportunities').insert({ title: newOpp.title, client_id: newOpp.client_id || null, stage: newOpp.stage, expected_value: newOpp.value, probability: newOpp.probability, user_id: newOpp.assigned_to || null, expected_close: newOpp.expected_close_date || null, notes: newOpp.notes || null })
     if (!error) { addToast({ type: 'success', title: 'Oportunidad creada' }); setShowNew(false); setNewOpp({ title: '', client_name: '', client_id: '', value: 0, currency: 'EUR', probability: 50, stage: 'lead', assigned_to: '', expected_close_date: '', notes: '' }); loadData() }
     setSavingNew(false)
   }
 
-  const pipelineTotal = opportunities.filter((o) => o.stage !== 'perdido').reduce((sum, o) => sum + o.value * (o.probability / 100), 0)
-  const stageValues = CRM_STAGES.map((stage) => { const stageOpps = opportunities.filter((o) => o.stage === stage.id); return { ...stage, opps: stageOpps, totalValue: stageOpps.reduce((sum, o) => sum + o.value, 0), count: stageOpps.length } })
+  const pipelineTotal = opportunities.filter((o) => o.stage !== 'perdido').reduce((sum, o) => sum + o.expected_value * (o.probability / 100), 0)
+  const stageValues = CRM_STAGES.map((stage) => { const stageOpps = opportunities.filter((o) => o.stage === stage.id); return { ...stage, opps: stageOpps, totalValue: stageOpps.reduce((sum, o) => sum + o.expected_value, 0), count: stageOpps.length } })
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
 
@@ -131,9 +131,9 @@ function PipelineTab() {
               ) : stage.opps.map((opp) => (
                 <div key={opp.id} draggable onDragStart={(e) => handleDragStart(e, opp.id)} onClick={() => openDetail(opp)} className={`p-3 rounded-lg bg-[#141820] border border-[#1E2330] hover:border-[#2A3040] transition-all cursor-pointer group ${dragId === opp.id ? 'opacity-50' : ''}`}>
                   <div className="flex items-start justify-between mb-2"><h4 className="text-sm font-medium text-[#F0F2F5] line-clamp-2 flex-1">{opp.title}</h4><GripVertical size={14} className="text-[#2A3040] group-hover:text-[#4B5563] shrink-0 ml-2 cursor-grab" /></div>
-                  <p className="text-xs text-[#6B7280] mb-2">{(opp.client as unknown as { company_name: string })?.company_name || 'Sin cliente'}</p>
+                  <p className="text-xs text-[#6B7280] mb-2">{(opp.client as unknown as { name: string })?.name || 'Sin cliente'}</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-[#FF6600]">{formatCurrency(opp.value, (opp.currency || 'EUR') as 'EUR' | 'ARS' | 'USD')}</span>
+                    <span className="text-sm font-bold text-[#FF6600]">{formatCurrency(opp.expected_value, 'EUR')}</span>
                     <div className="flex items-center gap-1"><div className="w-12 h-1.5 rounded-full bg-[#1E2330] overflow-hidden"><div className="h-full rounded-full" style={{ width: `${opp.probability}%`, backgroundColor: opp.probability >= 70 ? '#10B981' : opp.probability >= 40 ? '#F59E0B' : '#6B7280' }} /></div><span className="text-[10px] text-[#6B7280]">{opp.probability}%</span></div>
                   </div>
                 </div>
@@ -147,8 +147,8 @@ function PipelineTab() {
         {selectedOpp && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">Cliente</p><p className="text-sm font-medium text-[#F0F2F5]">{(selectedOpp.client as unknown as { company_name: string })?.company_name || '-'}</p></div>
-              <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">Valor</p><p className="text-sm font-bold text-[#FF6600]">{formatCurrency(selectedOpp.value, (selectedOpp.currency || 'EUR') as 'EUR' | 'ARS' | 'USD')}</p></div>
+              <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">Cliente</p><p className="text-sm font-medium text-[#F0F2F5]">{(selectedOpp.client as unknown as { name: string })?.name || '-'}</p></div>
+              <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">Valor</p><p className="text-sm font-bold text-[#FF6600]">{formatCurrency(selectedOpp.expected_value, 'EUR')}</p></div>
             </div>
             <Select label="Etapa" options={CRM_STAGES.map((s) => ({ value: s.id, label: s.label }))} value={editStage} onChange={(e) => setEditStage(e.target.value)} />
             <Input label="Probabilidad (%)" type="number" min={0} max={100} value={editProbability} onChange={(e) => setEditProbability(Number(e.target.value))} />
@@ -163,7 +163,7 @@ function PipelineTab() {
           <div className="relative"><Input label="Cliente" value={newOpp.client_name} onChange={(e) => handleClientSearch(e.target.value)} />
             {showClientDropdown && clientSearchResults.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-[#141820] border border-[#1E2330] rounded-lg shadow-xl z-10 max-h-36 overflow-y-auto">
-                {clientSearchResults.map((c) => (<button key={c.id} onClick={() => { setNewOpp({ ...newOpp, client_id: c.id, client_name: c.company_name }); setShowClientDropdown(false) }} className="w-full text-left px-4 py-2 hover:bg-[#1E2330] text-sm text-[#F0F2F5]">{c.company_name}</button>))}
+                {clientSearchResults.map((c) => (<button key={c.id} onClick={() => { setNewOpp({ ...newOpp, client_id: c.id, client_name: c.name }); setShowClientDropdown(false) }} className="w-full text-left px-4 py-2 hover:bg-[#1E2330] text-sm text-[#F0F2F5]">{c.name}</button>))}
               </div>
             )}
           </div>
@@ -237,14 +237,14 @@ function InformesTab() {
   useEffect(() => {
     (async () => {
       setLoading(true)
-      const { data } = await supabase.from('tt_opportunities').select('stage, value, probability')
+      const { data } = await supabase.from('tt_opportunities').select('stage, expected_value, probability')
       const opps = data || []
       const won = opps.filter(o => (o.stage as string) === 'ganado').length
       const lost = opps.filter(o => (o.stage as string) === 'perdido').length
-      const pipelineValue = opps.filter(o => (o.stage as string) !== 'perdido').reduce((s, o) => s + ((o.value as number) || 0) * (((o.probability as number) || 0) / 100), 0)
+      const pipelineValue = opps.filter(o => (o.stage as string) !== 'perdido').reduce((s, o) => s + ((o.expected_value as number) || 0) * (((o.probability as number) || 0) / 100), 0)
       const byStage = CRM_STAGES.map(s => {
         const stageOpps = opps.filter(o => (o.stage as string) === s.id)
-        return { stage: s.label, count: stageOpps.length, value: stageOpps.reduce((sum, o) => sum + ((o.value as number) || 0), 0) }
+        return { stage: s.label, count: stageOpps.length, value: stageOpps.reduce((sum, o) => sum + ((o.expected_value as number) || 0), 0) }
       })
       setStats({ total: opps.length, won, lost, pipelineValue, byStage })
       setLoading(false)

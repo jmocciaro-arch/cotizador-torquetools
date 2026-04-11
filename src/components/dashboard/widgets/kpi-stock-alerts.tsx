@@ -14,16 +14,16 @@ export function KpiStockAlerts() {
     async function load() {
       try {
         const supabase = createClient()
-        // Products where current stock is below min_stock
+        // Products where current stock is below min_quantity
         const { data, error: e } = await supabase
           .from('tt_stock')
-          .select('quantity, tt_products!inner(min_stock)')
+          .select('quantity, min_quantity')
 
         if (e) throw e
 
         const alerts = (data || []).filter((item: any) => {
-          const minStock = item.tt_products?.min_stock ?? 0
-          return minStock > 0 && (item.quantity || 0) < minStock
+          const minQty = item.min_quantity ?? 0
+          return minQty > 0 && (item.quantity || 0) < minQty
         })
         setCount(alerts.length)
       } catch {

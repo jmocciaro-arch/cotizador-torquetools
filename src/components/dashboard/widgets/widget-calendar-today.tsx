@@ -8,7 +8,7 @@ import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 interface Event {
   id: string
   action: string
-  description: string | null
+  detail: string | null
   created_at: string
 }
 
@@ -27,7 +27,7 @@ export function WidgetCalendarToday() {
 
         const { data, error: e } = await supabase
           .from('tt_activity_log')
-          .select('id, action, description, created_at')
+          .select('id, action, detail, created_at')
           .gte('created_at', startOfDay)
           .lt('created_at', endOfDay)
           .order('created_at', { ascending: true })
@@ -83,8 +83,8 @@ export function WidgetCalendarToday() {
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-[#F0F2F5] truncate">{ev.action}</p>
-                {ev.description && (
-                  <p className="text-[10px] text-[#6B7280] truncate">{ev.description}</p>
+                {ev.detail && (
+                  <p className="text-[10px] text-[#6B7280] truncate">{ev.detail}</p>
                 )}
               </div>
             </div>

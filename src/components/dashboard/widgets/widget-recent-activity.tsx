@@ -10,7 +10,7 @@ import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 interface ActivityItem {
   id: string
   action: string
-  description: string | null
+  detail: string | null
   entity_type: string
   created_at: string
   user?: { full_name: string } | null
@@ -35,7 +35,7 @@ export function WidgetRecentActivity() {
       const supabase = createClient()
       const { data, error: e } = await supabase
         .from('tt_activity_log')
-        .select('id, action, description, entity_type, created_at, user:tt_users(full_name)')
+        .select('id, action, detail, entity_type, created_at, user:tt_users(full_name)')
         .order('created_at', { ascending: false })
         .limit(15)
 
@@ -86,8 +86,8 @@ export function WidgetRecentActivity() {
                 {item.entity_type}
               </Badge>
             </div>
-            {item.description && (
-              <p className="text-[11px] text-[#6B7280] mt-0.5 truncate">{item.description}</p>
+            {item.detail && (
+              <p className="text-[11px] text-[#6B7280] mt-0.5 truncate">{item.detail}</p>
             )}
             <p className="text-[10px] text-[#4B5563] mt-0.5">
               {item.user?.full_name || 'Sistema'} &middot; {formatRelative(item.created_at)}

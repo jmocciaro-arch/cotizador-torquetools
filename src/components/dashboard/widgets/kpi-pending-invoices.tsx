@@ -17,10 +17,9 @@ export function KpiPendingInvoices() {
       try {
         const supabase = createClient()
         const { data, count: c, error: e } = await supabase
-          .from('tt_documents')
+          .from('tt_quotes')
           .select('total', { count: 'exact' })
-          .eq('type', 'delivery_note')
-          .eq('invoiced', false)
+          .in('status', ['accepted', 'aceptada'])
 
         if (e) throw e
         setCount(c ?? 0)

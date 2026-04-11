@@ -85,7 +85,7 @@ export default function AdminPage() {
 
   const loadUsers = useCallback(async () => {
     setLoadingUsers(true)
-    const { data } = await supabase.from('tt_users').select('*').order('name')
+    const { data } = await supabase.from('tt_users').select('*').order('full_name')
     setUsersData(data || [])
     setLoadingUsers(false)
   }, [supabase])
@@ -102,7 +102,7 @@ export default function AdminPage() {
     const { data } = await supabase.from('tt_system_params').select('*').order('key')
     setParams(data || [])
     const edits: Record<string, string> = {}
-    ;(data || []).forEach((p: Row) => { edits[p.id as string] = (p.value as string) || '' })
+    ;(data || []).forEach((p: Row) => { edits[p.key as string] = (p.value as string) || '' })
     setParamEdits(edits)
     setLoadingParams(false)
   }, [supabase])
@@ -183,10 +183,10 @@ export default function AdminPage() {
     setCompanyForm({
       name: (c.name as string) || '',
       tax_id: (c.tax_id as string) || '',
-      currency: (c.currency as string) || 'EUR',
+      country: (c.country as string) || '',
       address: (c.address as string) || '',
-      bank_details: (c.bank_details as string) || '',
-      tax_rate: String((c.tax_rate as number) || 0),
+      iban: (c.iban as string) || '',
+      default_tax_rate: String((c.default_tax_rate as number) || 0),
       default_margin: String((c.default_margin as number) || 0),
     })
   }
@@ -196,10 +196,10 @@ export default function AdminPage() {
     await supabase.from('tt_companies').update({
       name: companyForm.name,
       tax_id: companyForm.tax_id,
-      currency: companyForm.currency,
+      country: companyForm.country,
       address: companyForm.address,
-      bank_details: companyForm.bank_details,
-      tax_rate: Number(companyForm.tax_rate),
+      iban: companyForm.iban,
+      default_tax_rate: Number(companyForm.default_tax_rate),
       default_margin: Number(companyForm.default_margin),
     }).eq('id', editCompany.id)
     addToast({ type: 'success', title: 'Empresa actualizada' })
@@ -208,15 +208,15 @@ export default function AdminPage() {
   }
 
   const saveParams = async () => {
-    for (const [id, value] of Object.entries(paramEdits)) {
-      await supabase.from('tt_system_params').update({ value }).eq('id', id)
+    for (const [key, value] of Object.entries(paramEdits)) {
+      await supabase.from('tt_system_params').update({ value }).eq('key', key)
     }
     addToast({ type: 'success', title: 'Parámetros guardados' })
   }
 
   const addWarehouse = async () => {
     if (!newWarehouse.name.trim()) return
-    await supabase.from('tt_warehouses').insert({ name: newWarehouse.name, location: newWarehouse.location || null })
+    await supabase.from('tt_warehouses').insert({ name: newWarehouse.name, city: newWarehouse.location || null, active: true })
     addToast({ type: 'success', title: 'Almacén creado' })
     setShowAddWarehouse(false)
     setNewWarehouse({ name: '', location: '' })
@@ -260,9 +260,9 @@ export default function AdminPage() {
                             <TableCell>
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-full bg-[#FF6600] flex items-center justify-center text-white text-xs font-bold">
-                                  {getInitials((u.name as string) || 'U')}
+                                  {getInitials((u.full_name as string) || 'U')}
                                 </div>
-                                <span className="text-sm font-medium text-[#F0F2F5]">{(u.name as string) || '-'}</span>
+                                <span className="text-sm font-medium text-[#F0F2F5]">{(u.full_name as string) || '-'}</span>
                               </div>
                             </TableCell>
                             <TableCell className="text-sm text-[#9CA3AF]">{(u.email as string) || '-'}</TableCell>
@@ -272,7 +272,7 @@ export default function AdminPage() {
                               </Badge>
                             </TableCell>
                             <TableCell className="text-sm text-[#6B7280]">
-                              {u.last_login ? formatRelative(u.last_login as string) : 'Nunca'}
+                              {u.updated_at ? formatRelative(u.updated_at as string) : 'Nunca'}
                             </TableCell>
                             <TableCell>
                               <Button variant="ghost" size="sm" onClick={() => { setEditUser(u); setEditUserRole((u.role as string) || '') }}>
@@ -309,8 +309,8 @@ export default function AdminPage() {
                           </div>
                           <div className="grid grid-cols-3 gap-2 text-sm">
                             <div><p className="text-[10px] text-[#6B7280]">CIF/CUIT</p><p className="text-[#D1D5DB]">{(c.tax_id as string) || '-'}</p></div>
-                            <div><p className="text-[10px] text-[#6B7280]">Moneda</p><p className="text-[#D1D5DB]">{(c.currency as string) || '-'}</p></div>
-                            <div><p className="text-[10px] text-[#6B7280]">IVA</p><p className="text-[#D1D5DB]">{c.tax_rate ? `${c.tax_rate}%` : '-'}</p></div>
+                            <div><p className="text-[10px] text-[#6B7280]">Pais</p><p className="text-[#D1D5DB]">{(c.country as string) || '-'}</p></div>
+                            <div><p className="text-[10px] text-[#6B7280]">IVA</p><p className="text-[#D1D5DB]">{c.default_tax_rate ? `${c.default_tax_rate}%` : '-'}</p></div>
                           </div>
                           <Button variant="ghost" size="sm" className="mt-3 w-full" onClick={() => openEditCompany(c)}>
                             <Edit size={14} /> Configurar
@@ -339,10 +339,10 @@ export default function AdminPage() {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {params.map((p) => (
                           <Input
-                            key={p.id as string}
+                            key={p.key as string}
                             label={`${(p.key as string) || ''} ${(p.description as string) ? `(${p.description})` : ''}`}
-                            value={paramEdits[p.id as string] || ''}
-                            onChange={(e) => setParamEdits({ ...paramEdits, [p.id as string]: e.target.value })}
+                            value={paramEdits[p.key as string] || ''}
+                            onChange={(e) => setParamEdits({ ...paramEdits, [p.key as string]: e.target.value })}
                           />
                         ))}
                       </div>
@@ -378,7 +378,7 @@ export default function AdminPage() {
                         {warehouses.map((w) => (
                           <TableRow key={w.id as string}>
                             <TableCell><span className="font-medium text-[#F0F2F5]">{(w.name as string) || '-'}</span></TableCell>
-                            <TableCell className="text-[#9CA3AF]">{(w.location as string) || '-'}</TableCell>
+                            <TableCell className="text-[#9CA3AF]">{(w.city as string) || (w.country as string) || '-'}</TableCell>
                             <TableCell className="text-sm">{w.created_at ? formatDate(w.created_at as string) : '-'}</TableCell>
                           </TableRow>
                         ))}
@@ -513,7 +513,7 @@ export default function AdminPage() {
       <Modal isOpen={!!editUser} onClose={() => setEditUser(null)} title="Editar usuario" size="sm">
         {editUser && (
           <div className="space-y-4">
-            <p className="text-sm text-[#D1D5DB]">{(editUser.name as string) || ''} ({(editUser.email as string) || ''})</p>
+            <p className="text-sm text-[#D1D5DB]">{(editUser.full_name as string) || ''} ({(editUser.email as string) || ''})</p>
             <Select
               label="Rol"
               options={[
@@ -540,16 +540,16 @@ export default function AdminPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Input label="Nombre" value={companyForm.name || ''} onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })} />
               <Input label="CIF / CUIT" value={companyForm.tax_id || ''} onChange={(e) => setCompanyForm({ ...companyForm, tax_id: e.target.value })} />
-              <Input label="Moneda" value={companyForm.currency || ''} onChange={(e) => setCompanyForm({ ...companyForm, currency: e.target.value })} />
-              <Input label="Tasa IVA (%)" type="number" value={companyForm.tax_rate || ''} onChange={(e) => setCompanyForm({ ...companyForm, tax_rate: e.target.value })} />
+              <Input label="Pais" value={companyForm.country || ''} onChange={(e) => setCompanyForm({ ...companyForm, country: e.target.value })} />
+              <Input label="Tasa IVA (%)" type="number" value={companyForm.default_tax_rate || ''} onChange={(e) => setCompanyForm({ ...companyForm, default_tax_rate: e.target.value })} />
               <Input label="Margen por defecto (%)" type="number" value={companyForm.default_margin || ''} onChange={(e) => setCompanyForm({ ...companyForm, default_margin: e.target.value })} />
             </div>
             <Input label="Dirección" value={companyForm.address || ''} onChange={(e) => setCompanyForm({ ...companyForm, address: e.target.value })} />
             <div>
-              <label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">Datos bancarios</label>
+              <label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">IBAN</label>
               <textarea
-                value={companyForm.bank_details || ''}
-                onChange={(e) => setCompanyForm({ ...companyForm, bank_details: e.target.value })}
+                value={companyForm.iban || ''}
+                onChange={(e) => setCompanyForm({ ...companyForm, iban: e.target.value })}
                 className="w-full h-20 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 py-2 text-sm text-[#F0F2F5] focus:outline-none focus:ring-2 focus:ring-orange-500/50 resize-none"
               />
             </div>

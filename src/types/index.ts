@@ -8,7 +8,7 @@ export interface Company {
   legal_name: string | null
   tax_id: string | null
   country: string
-  currency: 'EUR' | 'ARS' | 'USD'
+  currency: string
   address: string | null
   city: string | null
   postal_code: string | null
@@ -20,9 +20,7 @@ export interface Company {
   swift: string | null
   default_tax_rate: number
   default_margin: number
-  invoice_prefix: string | null
-  invoice_next_number: number
-  is_active: boolean
+  active: boolean
   created_at: string
   updated_at: string
 }
@@ -30,18 +28,17 @@ export interface Company {
 export interface User {
   id: string
   auth_id: string | null
-  email: string
+  username: string | null
   full_name: string
-  short_name: string | null
-  role: 'admin' | 'vendedor' | 'viewer'
-  phone: string | null
+  email: string
+  gmail: string | null
   whatsapp: string | null
+  phone: string | null
+  role: string
+  company_id: string | null
   avatar_url: string | null
-  default_company_id: string | null
   permissions: Record<string, boolean>
-  gmail_connected: boolean
-  is_active: boolean
-  last_login: string | null
+  active: boolean
   created_at: string
   updated_at: string
 }
@@ -62,50 +59,54 @@ export interface Product {
   name: string
   description: string | null
   brand: string
-  category_id: string | null
-  category_name: string | null
-  price_cost: number
-  price_list: number
-  price_currency: string
-  weight_kg: number | null
-  hs_code: string | null
-  origin_country: string | null
+  category: string | null
+  subcategory: string | null
   image_url: string | null
+  price_eur: number
+  cost_eur: number
+  price_usd: number
+  price_ars: number
+  origin: string | null
+  weight_kg: number | null
+  torque_min: number | null
+  torque_max: number | null
+  rpm: number | null
+  encastre: string | null
+  modelo: string | null
+  serie: string | null
   specs: Record<string, string>
-  is_active: boolean
-  is_featured: boolean
-  search_tokens: string | null
+  active: boolean
   created_at: string
   updated_at: string
+  stelorder_id: string | null
+  company_source: string | null
 }
 
 export interface Client {
   id: string
-  code: string | null
-  company_name: string
+  name: string
   legal_name: string | null
   tax_id: string | null
-  type: 'empresa' | 'autonomo' | 'particular' | 'distribuidor'
-  country: string
+  email: string | null
+  phone: string | null
+  whatsapp: string | null
   address: string | null
   city: string | null
   state: string | null
   postal_code: string | null
-  phone: string | null
-  email: string | null
-  website: string | null
-  payment_terms: string
+  country: string
+  category: string | null
+  payment_terms: string | null
   credit_limit: number
-  discount_default: number
-  currency: string
   assigned_to: string | null
-  tags: string[]
+  company_id: string | null
   notes: string | null
-  is_active: boolean
-  total_revenue: number
-  last_order_date: string | null
+  source: string | null
+  active: boolean
   created_at: string
   updated_at: string
+  stelorder_id: string | null
+  company_source: string | null
 }
 
 export interface ClientContact {
@@ -125,11 +126,11 @@ export interface Warehouse {
   id: string
   name: string
   code: string
+  company_id: string | null
   address: string | null
   city: string | null
   country: string
-  company_id: string | null
-  is_active: boolean
+  active: boolean
   created_at: string
 }
 
@@ -138,10 +139,8 @@ export interface Stock {
   product_id: string
   warehouse_id: string
   quantity: number
+  min_quantity: number
   reserved: number
-  min_stock: number
-  max_stock: number
-  last_counted_at: string | null
   updated_at: string
   // Joined
   product?: Product
@@ -152,50 +151,44 @@ export type QuoteStatus = 'borrador' | 'enviada' | 'aceptada' | 'rechazada' | 'e
 
 export interface Quote {
   id: string
-  quote_number: string
+  number: string
   company_id: string
   client_id: string | null
-  client_contact_id: string | null
-  created_by: string
-  status: QuoteStatus
-  title: string | null
-  notes: string | null
-  internal_notes: string | null
-  incoterm: string | null
-  payment_terms: string | null
-  validity_days: number
+  user_id: string | null
+  status: string
   currency: string
   exchange_rate: number
   subtotal: number
-  discount_total: number
-  tax_rate: number
   tax_amount: number
   total: number
-  sent_at: string | null
-  accepted_at: string | null
-  expires_at: string | null
-  tags: string[]
+  tax_rate: number
+  incoterm: string | null
+  payment_terms: string | null
+  notes: string | null
+  internal_notes: string | null
+  valid_until: string | null
+  closed_at: string | null
+  parent_quote_id: string | null
   created_at: string
   updated_at: string
   // Joined
   company?: Company
   client?: Client
   items?: QuoteItem[]
-  creator?: User
 }
 
 export interface QuoteItem {
   id: string
   quote_id: string
   product_id: string | null
-  sort_order: number
   sku: string | null
   description: string
   quantity: number
   unit_price: number
-  discount_percent: number
+  discount_pct: number
   subtotal: number
   notes: string | null
+  sort_order: number
   created_at: string
   // Joined
   product?: Product
@@ -208,18 +201,15 @@ export interface Opportunity {
   title: string
   client_id: string | null
   company_id: string | null
-  assigned_to: string | null
-  stage: CRMStage
-  value: number
-  currency: string
+  user_id: string | null
+  stage: string
   probability: number
-  expected_close_date: string | null
+  expected_value: number
+  expected_close: string | null
   source: string | null
-  lost_reason: string | null
+  competitor: string | null
+  loss_reason: string | null
   notes: string | null
-  tags: string[]
-  quote_id: string | null
-  sort_order: number
   created_at: string
   updated_at: string
   // Joined
@@ -306,11 +296,11 @@ export interface SATTicket {
 
 export interface ActivityLog {
   id: string
-  user_id: string | null
   entity_type: string
   entity_id: string | null
   action: string
-  description: string | null
+  detail: string | null
+  user_id: string | null
   metadata: Record<string, unknown>
   created_at: string
   // Joined
@@ -343,7 +333,6 @@ export interface MailFollowup {
 }
 
 export interface SystemParam {
-  id: string
   key: string
   value: string | null
   description: string | null

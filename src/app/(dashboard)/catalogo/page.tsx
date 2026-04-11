@@ -21,8 +21,8 @@ const PAGE_SIZE = 50
 
 interface Product {
   id: string; sku: string; name: string; description: string | null; brand: string
-  category_name: string | null; price_list: number; price_currency: string
-  image_url: string | null; specs: Record<string, string> | null; is_active: boolean
+  category: string | null; price_eur: number; cost_eur: number
+  image_url: string | null; specs: Record<string, string> | null; active: boolean
   torque_min: number | null; torque_max: number | null; rpm: number | null; encastre: string | null
 }
 
@@ -60,18 +60,18 @@ function ProductosTab() {
 
   async function loadCategories() {
     const supabase = createClient()
-    const { data } = await supabase.from('tt_products').select('category_name').not('category_name', 'is', null).limit(1000)
-    if (data) { const unique = [...new Set(data.map((d: { category_name: string | null }) => d.category_name).filter(Boolean) as string[])]; unique.sort(); setCategories(unique) }
+    const { data } = await supabase.from('tt_products').select('category').not('category', 'is', null).limit(1000)
+    if (data) { const unique = [...new Set(data.map((d: { category: string | null }) => d.category).filter(Boolean) as string[])]; unique.sort(); setCategories(unique) }
   }
 
   const loadProducts = useCallback(async (fromOffset: number, reset: boolean = false) => {
     const supabase = createClient()
     if (reset) setLoading(true); else setLoadingMore(true)
     try {
-      let query = supabase.from('tt_products').select('id, sku, name, description, brand, category_name, price_list, price_currency, image_url, specs, is_active, torque_min, torque_max, rpm, encastre', { count: 'exact' }).eq('is_active', true).order('name', { ascending: true }).range(fromOffset, fromOffset + PAGE_SIZE - 1)
+      let query = supabase.from('tt_products').select('id, sku, name, description, brand, category, price_eur, cost_eur, image_url, specs, active, torque_min, torque_max, rpm, encastre', { count: 'exact' }).eq('active', true).order('name', { ascending: true }).range(fromOffset, fromOffset + PAGE_SIZE - 1)
       if (selectedBrand) query = query.ilike('brand', selectedBrand)
-      if (selectedCategory) query = query.eq('category_name', selectedCategory)
-      if (search.trim()) { const tokens = search.trim().toLowerCase().split(/\s+/); for (const token of tokens) { query = query.or(`name.ilike.%${token}%,sku.ilike.%${token}%,brand.ilike.%${token}%,category_name.ilike.%${token}%`) } }
+      if (selectedCategory) query = query.eq('category', selectedCategory)
+      if (search.trim()) { const tokens = search.trim().toLowerCase().split(/\s+/); for (const token of tokens) { query = query.or(`name.ilike.%${token}%,sku.ilike.%${token}%,brand.ilike.%${token}%,category.ilike.%${token}%`) } }
       const { data, count } = await query
       const newProducts = (data || []) as Product[]
       if (reset) setProducts(newProducts); else setProducts((prev) => [...prev, ...newProducts])
@@ -115,7 +115,7 @@ function ProductosTab() {
               <Badge variant="default" className="w-fit mb-2">{product.brand}</Badge>
               <p className="text-xs font-mono text-[#6B7280] mb-1">{product.sku}</p>
               <h3 className="text-sm font-medium text-[#F0F2F5] line-clamp-2 flex-1">{product.name}</h3>
-              <p className="text-lg font-bold text-[#FF6600] mt-2">{product.price_list > 0 ? formatCurrency(product.price_list, (product.price_currency || 'EUR') as 'EUR' | 'ARS' | 'USD') : 'Consultar'}</p>
+              <p className="text-lg font-bold text-[#FF6600] mt-2">{product.price_eur > 0 ? formatCurrency(product.price_eur, 'EUR') : 'Consultar'}</p>
             </Card>
           ))}
         </div>
@@ -130,7 +130,7 @@ function ProductosTab() {
                 <div className="flex items-center gap-2"><Badge variant="default">{product.brand}</Badge><span className="text-xs font-mono text-[#6B7280]">{product.sku}</span></div>
                 <h3 className="text-sm font-medium text-[#F0F2F5] mt-1 truncate">{product.name}</h3>
               </div>
-              <p className="text-lg font-bold text-[#FF6600] shrink-0">{product.price_list > 0 ? formatCurrency(product.price_list, (product.price_currency || 'EUR') as 'EUR' | 'ARS' | 'USD') : 'Consultar'}</p>
+              <p className="text-lg font-bold text-[#FF6600] shrink-0">{product.price_eur > 0 ? formatCurrency(product.price_eur, 'EUR') : 'Consultar'}</p>
             </div>
           ))}
         </div>
@@ -148,10 +148,10 @@ function ProductosTab() {
                 {selectedProduct.image_url ? <img src={selectedProduct.image_url} alt={selectedProduct.name} referrerPolicy="no-referrer" className="w-full h-full object-contain p-3" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <Package size={48} className="text-[#2A3040]" />}
               </div>
               <div className="flex-1 space-y-3">
-                <div className="flex items-center gap-2 flex-wrap"><Badge variant="orange">{selectedProduct.brand}</Badge>{selectedProduct.category_name && <Badge variant="default">{selectedProduct.category_name}</Badge>}</div>
+                <div className="flex items-center gap-2 flex-wrap"><Badge variant="orange">{selectedProduct.brand}</Badge>{selectedProduct.category && <Badge variant="default">{selectedProduct.category}</Badge>}</div>
                 <p className="text-sm font-mono text-[#6B7280]">{selectedProduct.sku}</p>
                 {selectedProduct.description && <p className="text-sm text-[#D1D5DB]">{selectedProduct.description}</p>}
-                <p className="text-2xl font-bold text-[#FF6600]">{selectedProduct.price_list > 0 ? formatCurrency(selectedProduct.price_list, (selectedProduct.price_currency || 'EUR') as 'EUR' | 'ARS' | 'USD') : 'Consultar precio'}</p>
+                <p className="text-2xl font-bold text-[#FF6600]">{selectedProduct.price_eur > 0 ? formatCurrency(selectedProduct.price_eur, 'EUR') : 'Consultar precio'}</p>
               </div>
             </div>
             {selectedProduct.specs && Object.keys(selectedProduct.specs).length > 0 && (
@@ -178,9 +178,9 @@ function CategoriasTab() {
   useEffect(() => {
     (async () => {
       setLoading(true)
-      const { data } = await supabase.from('tt_products').select('category_name').eq('is_active', true)
+      const { data } = await supabase.from('tt_products').select('category').eq('active', true)
       const map = new Map<string, number>()
-      for (const p of (data || [])) { const cat = (p.category_name as string) || 'Sin categoria'; map.set(cat, (map.get(cat) || 0) + 1) }
+      for (const p of (data || [])) { const cat = (p.category as string) || 'Sin categoria'; map.set(cat, (map.get(cat) || 0) + 1) }
       const arr = Array.from(map.entries()).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
       setCategories(arr)
       setLoading(false)
@@ -219,9 +219,9 @@ function MarcasTab() {
   useEffect(() => {
     (async () => {
       setLoading(true)
-      const { data } = await supabase.from('tt_products').select('brand, price_list').eq('is_active', true)
+      const { data } = await supabase.from('tt_products').select('brand, price_eur').eq('active', true)
       const map = new Map<string, { count: number; totalPrice: number }>()
-      for (const p of (data || [])) { const brand = (p.brand as string) || 'Sin marca'; const existing = map.get(brand) || { count: 0, totalPrice: 0 }; existing.count++; existing.totalPrice += (p.price_list as number) || 0; map.set(brand, existing) }
+      for (const p of (data || [])) { const brand = (p.brand as string) || 'Sin marca'; const existing = map.get(brand) || { count: 0, totalPrice: 0 }; existing.count++; existing.totalPrice += (p.price_eur as number) || 0; map.set(brand, existing) }
       const arr = Array.from(map.entries()).map(([name, v]) => ({ name, count: v.count, avgPrice: v.count > 0 ? v.totalPrice / v.count : 0 })).sort((a, b) => b.count - a.count)
       setBrands(arr)
       setLoading(false)
@@ -261,7 +261,7 @@ function TarifasTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_products').select('id, sku, name, brand, price_list, price_currency, cost_price, sell_price').eq('is_active', true).order('brand').order('name')
+    let q = supabase.from('tt_products').select('id, sku, name, brand, price_eur, cost_eur').eq('active', true).order('brand').order('name')
     if (brandFilter) q = q.ilike('brand', brandFilter)
     const { data } = await q.limit(200)
     setProducts(data || [])
@@ -290,9 +290,9 @@ function TarifasTab() {
                   <TableCell className="font-mono text-xs">{p.sku as string}</TableCell>
                   <TableCell className="text-[#F0F2F5] max-w-[200px] truncate">{p.name as string}</TableCell>
                   <TableCell><Badge>{p.brand as string}</Badge></TableCell>
-                  <TableCell className="font-bold text-[#FF6600]">{formatCurrency((p.price_list as number) || 0)}</TableCell>
-                  <TableCell className="text-[#6B7280]">{formatCurrency((p.cost_price as number) || 0)}</TableCell>
-                  <TableCell>{(p.price_currency as string) || 'EUR'}</TableCell>
+                  <TableCell className="font-bold text-[#FF6600]">{formatCurrency((p.price_eur as number) || 0)}</TableCell>
+                  <TableCell className="text-[#6B7280]">{formatCurrency((p.cost_eur as number) || 0)}</TableCell>
+                  <TableCell>EUR</TableCell>
                 </TableRow>
               ))}
             </TableBody>

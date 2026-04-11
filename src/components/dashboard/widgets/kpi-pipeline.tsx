@@ -18,15 +18,15 @@ export function KpiPipeline() {
         const supabase = createClient()
         const { data, error: e } = await supabase
           .from('tt_opportunities')
-          .select('value, probability')
+          .select('expected_value, probability')
           .neq('stage', 'perdido')
 
         if (e) throw e
         const ops = data || []
         setCount(ops.length)
         const weighted = ops.reduce(
-          (sum: number, o: { value: number; probability: number }) =>
-            sum + (o.value || 0) * ((o.probability || 0) / 100),
+          (sum: number, o: { expected_value: number; probability: number }) =>
+            sum + (o.expected_value || 0) * ((o.probability || 0) / 100),
           0
         )
         setValue(weighted)

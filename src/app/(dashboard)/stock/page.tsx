@@ -23,7 +23,7 @@ import {
 type Row = Record<string, unknown>
 
 interface StockRow {
-  id: string; quantity: number; reserved: number; min_stock: number
+  id: string; quantity: number; reserved: number; min_quantity: number
   product_sku: string; product_name: string; product_brand: string
   warehouse_name: string; warehouse_code: string
 }
@@ -58,26 +58,26 @@ function InventarioTab() {
 
   async function loadWarehouses() {
     const supabase = createClient()
-    const { data } = await supabase.from('tt_warehouses').select('*').eq('is_active', true).order('name')
+    const { data } = await supabase.from('tt_warehouses').select('*').eq('active', true).order('name')
     setWarehouses((data || []) as Warehouse[])
   }
 
   const loadStock = useCallback(async () => {
     const supabase = createClient(); setLoading(true)
     try {
-      let query = supabase.from('tt_stock').select(`id, quantity, reserved, min_stock, product:tt_products(sku, name, brand), warehouse:tt_warehouses(name, code)`).order('quantity', { ascending: true })
+      let query = supabase.from('tt_stock').select(`id, quantity, reserved, min_quantity, product:tt_products(sku, name, brand), warehouse:tt_warehouses(name, code)`).order('quantity', { ascending: true })
       if (warehouseFilter) query = query.eq('warehouse_id', warehouseFilter)
       const { data } = await query
       if (!data || data.length === 0) { setStockItems([]); setBrands([]); setKpis({ total: 0, inStock: 0, lowStock: 0, outOfStock: 0 }); setLoading(false); return }
       let items: StockRow[] = data.map((row: Row) => {
         const product = row.product as Record<string, string> | null
         const warehouse = row.warehouse as Record<string, string> | null
-        return { id: row.id as string, quantity: row.quantity as number, reserved: row.reserved as number, min_stock: row.min_stock as number, product_sku: product?.sku || '', product_name: product?.name || '', product_brand: product?.brand || '', warehouse_name: warehouse?.name || '', warehouse_code: warehouse?.code || '' }
+        return { id: row.id as string, quantity: row.quantity as number, reserved: row.reserved as number, min_quantity: row.min_quantity as number, product_sku: product?.sku || '', product_name: product?.name || '', product_brand: product?.brand || '', warehouse_name: warehouse?.name || '', warehouse_code: warehouse?.code || '' }
       })
       const uniqueBrands = [...new Set(items.map((i) => i.product_brand).filter(Boolean))]; uniqueBrands.sort(); setBrands(uniqueBrands)
       if (brandFilter) items = items.filter((i) => i.product_brand === brandFilter)
       if (search.trim()) { const q = search.toLowerCase(); items = items.filter((i) => i.product_sku.toLowerCase().includes(q) || i.product_name.toLowerCase().includes(q) || i.product_brand.toLowerCase().includes(q)) }
-      setKpis({ total: items.length, inStock: items.filter((i) => i.quantity > i.min_stock).length, lowStock: items.filter((i) => i.quantity > 0 && i.quantity <= i.min_stock).length, outOfStock: items.filter((i) => i.quantity === 0).length })
+      setKpis({ total: items.length, inStock: items.filter((i) => i.quantity > i.min_quantity).length, lowStock: items.filter((i) => i.quantity > 0 && i.quantity <= i.min_quantity).length, outOfStock: items.filter((i) => i.quantity === 0).length })
       setStockItems(items)
     } finally { setLoading(false) }
   }, [search, warehouseFilter, brandFilter])
@@ -122,10 +122,10 @@ function InventarioTab() {
                     <TableCell className="max-w-[200px] truncate">{s.product_name}</TableCell>
                     <TableCell><Badge>{s.product_brand}</Badge></TableCell>
                     <TableCell className="text-[#9CA3AF]">{s.warehouse_name}</TableCell>
-                    <TableCell className={`text-right font-bold text-lg ${s.quantity === 0 ? 'text-red-400' : s.quantity <= s.min_stock ? 'text-yellow-400' : 'text-green-400'}`}>{s.quantity}</TableCell>
+                    <TableCell className={`text-right font-bold text-lg ${s.quantity === 0 ? 'text-red-400' : s.quantity <= s.min_quantity ? 'text-yellow-400' : 'text-green-400'}`}>{s.quantity}</TableCell>
                     <TableCell className="text-right text-[#6B7280]">{s.reserved}</TableCell>
-                    <TableCell className={`text-right font-medium ${available === 0 ? 'text-red-400' : available <= s.min_stock ? 'text-yellow-400' : 'text-green-400'}`}>{available}</TableCell>
-                    <TableCell>{stockBadge(s.quantity, s.min_stock)}</TableCell>
+                    <TableCell className={`text-right font-medium ${available === 0 ? 'text-red-400' : available <= s.min_quantity ? 'text-yellow-400' : 'text-green-400'}`}>{available}</TableCell>
+                    <TableCell>{stockBadge(s.quantity, s.min_quantity)}</TableCell>
                   </TableRow>
                 )
               })}
@@ -200,8 +200,8 @@ function TraspasosTab() {
     (async () => {
       setLoading(true)
       const [{ data: wh }, { data: pr }] = await Promise.all([
-        supabase.from('tt_warehouses').select('*').eq('is_active', true).order('name'),
-        supabase.from('tt_products').select('id, sku, name').eq('is_active', true).order('name').limit(500),
+        supabase.from('tt_warehouses').select('*').eq('active', true).order('name'),
+        supabase.from('tt_products').select('id, sku, name').eq('active', true).order('name').limit(500),
       ])
       setWarehouses((wh || []) as Warehouse[]); setProducts(pr || [])
       setLoading(false)
@@ -222,7 +222,7 @@ function TraspasosTab() {
     if (destStock) {
       await supabase.from('tt_stock').update({ quantity: (destStock.quantity as number) + quantity }).eq('id', destStock.id)
     } else {
-      await supabase.from('tt_stock').insert({ warehouse_id: destWH, product_id: selectedProduct, quantity, reserved: 0, min_stock: 0, max_stock: 0 })
+      await supabase.from('tt_stock').insert({ warehouse_id: destWH, product_id: selectedProduct, quantity, reserved: 0, min_quantity: 0 })
     }
 
     await supabase.from('tt_activity_log').insert({ entity_type: 'stock', action: 'transfer', detail: `Traspaso de ${quantity} unidades entre almacenes` })
@@ -263,7 +263,7 @@ function AlmacenesTab() {
     (async () => {
       setLoading(true)
       const [{ data: wh }, { data: stock }] = await Promise.all([
-        supabase.from('tt_warehouses').select('*').eq('is_active', true).order('name'),
+        supabase.from('tt_warehouses').select('*').eq('active', true).order('name'),
         supabase.from('tt_stock').select('warehouse_id, quantity'),
       ])
       setWarehouses((wh || []) as Warehouse[])

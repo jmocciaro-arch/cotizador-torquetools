@@ -25,13 +25,13 @@ export function WidgetPipelineChart() {
         const supabase = createClient()
         const { data: ops, error: e } = await supabase
           .from('tt_opportunities')
-          .select('stage, value')
+          .select('stage, expected_value')
 
         if (e) throw e
 
         const byStage: Record<string, number> = {}
-        ;(ops || []).forEach((o: { stage: string; value: number }) => {
-          byStage[o.stage] = (byStage[o.stage] || 0) + (o.value || 0)
+        ;(ops || []).forEach((o: { stage: string; expected_value: number }) => {
+          byStage[o.stage] = (byStage[o.stage] || 0) + (o.expected_value || 0)
         })
 
         const chartData = CRM_STAGES

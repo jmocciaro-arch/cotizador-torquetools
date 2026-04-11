@@ -15,10 +15,9 @@ export function KpiPendingDelivery() {
       try {
         const supabase = createClient()
         const { count: c, error: e } = await supabase
-          .from('tt_documents')
+          .from('tt_quotes')
           .select('*', { count: 'exact', head: true })
-          .eq('type', 'sales_order')
-          .in('status', ['accepted', 'partially_fulfilled'])
+          .in('status', ['accepted', 'aceptada', 'sent', 'enviada'])
 
         if (e) throw e
         setCount(c ?? 0)

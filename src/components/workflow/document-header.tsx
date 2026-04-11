@@ -22,7 +22,7 @@ interface Document {
 
 interface Client {
   id: string
-  company_name: string
+  name: string
   tax_id?: string
   country?: string
 }
@@ -183,7 +183,7 @@ export function DocumentHeader({
             <Building2 size={14} className="text-[#6B7280] shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-semibold text-[#F0F2F5] truncate">
-                {client.company_name}
+                {client.name}
               </p>
               {client.tax_id && (
                 <p className="text-[10px] text-[#6B7280]">

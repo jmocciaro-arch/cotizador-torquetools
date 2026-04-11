@@ -36,14 +36,14 @@ interface ProductSearchResult {
   sku: string
   name: string
   brand: string
-  price_list: number
-  price_currency: string
+  price_eur: number
+  cost_eur: string
   image_url: string | null
 }
 
 interface SavedQuote {
   id: string
-  quote_number: string
+  number: string
   status: string
   total: number
   currency: string
@@ -56,7 +56,7 @@ interface SavedQuote {
   incoterm?: string
   client_id?: string
   company_id?: string
-  client?: { company_name: string; tax_id?: string; country?: string } | null
+  client?: { name: string; tax_id?: string; country?: string } | null
   company?: { name: string; country?: string } | null
   items?: Array<{
     id: string
@@ -64,7 +64,7 @@ interface SavedQuote {
     description: string
     quantity: number
     unit_price: number
-    discount_percent: number
+    discount_pct: number
     subtotal: number
     notes?: string
     product_id?: string
@@ -127,7 +127,7 @@ export default function CotizadorPage() {
   useEffect(() => {
     const comp = companies.find((c) => c.id === selectedCompanyId)
     if (comp) {
-      setCurrency(comp.currency)
+      setCurrency((comp.currency || 'EUR') as 'EUR' | 'ARS' | 'USD')
       setTaxRate(comp.default_tax_rate || 21)
     }
   }, [selectedCompanyId, companies])
@@ -148,7 +148,7 @@ export default function CotizadorPage() {
 
   async function loadCompanies() {
     const supabase = createClient()
-    const { data } = await supabase.from('tt_companies').select('*').eq('is_active', true).order('name')
+    const { data } = await supabase.from('tt_companies').select('*').eq('active', true).order('name')
     if (data) {
       setCompanies(data as Company[])
       if (data.length > 0) setSelectedCompanyId(data[0].id)
@@ -160,13 +160,13 @@ export default function CotizadorPage() {
     const year = new Date().getFullYear()
     const { data } = await supabase
       .from('tt_quotes')
-      .select('quote_number')
-      .ilike('quote_number', `COT-${year}-%`)
-      .order('quote_number', { ascending: false })
+      .select('number')
+      .ilike('number', `COT-${year}-%`)
+      .order('number', { ascending: false })
       .limit(1)
     let nextNum = 1
     if (data && data.length > 0) {
-      const lastNum = data[0].quote_number.split('-').pop()
+      const lastNum = data[0].number.split('-').pop()
       nextNum = (parseInt(lastNum || '0', 10) || 0) + 1
     }
     setQuoteNumber(`COT-${year}-${nextNum.toString().padStart(4, '0')}`)
@@ -177,8 +177,8 @@ export default function CotizadorPage() {
     const { data } = await supabase
       .from('tt_clients')
       .select('*')
-      .or(`company_name.ilike.%${query}%,legal_name.ilike.%${query}%,tax_id.ilike.%${query}%,email.ilike.%${query}%`)
-      .eq('is_active', true)
+      .or(`name.ilike.%${query}%,legal_name.ilike.%${query}%,tax_id.ilike.%${query}%,email.ilike.%${query}%`)
+      .eq('active', true)
       .limit(10)
     setClientResults((data || []) as Client[])
     setShowClientDropdown(true)
@@ -188,7 +188,7 @@ export default function CotizadorPage() {
     setSearchingProducts(true)
     const supabase = createClient()
     const tokens = query.trim().toLowerCase().split(/\s+/)
-    let q = supabase.from('tt_products').select('id, sku, name, brand, price_list, price_currency, image_url').eq('is_active', true).limit(20)
+    let q = supabase.from('tt_products').select('id, sku, name, brand, price_eur, cost_eur, image_url').eq('active', true).limit(20)
     for (const token of tokens) { q = q.or(`name.ilike.%${token}%,sku.ilike.%${token}%,brand.ilike.%${token}%`) }
     const { data } = await q
     setProductResults((data || []) as ProductSearchResult[])
@@ -196,7 +196,7 @@ export default function CotizadorPage() {
   }
 
   function addProductAsItem(product: ProductSearchResult) {
-    setItems((prev) => [...prev, { id: Math.random().toString(36).slice(2), product_id: product.id, sku: product.sku, description: product.name, quantity: 1, unitPrice: product.price_list, discount: 0, notes: '' }])
+    setItems((prev) => [...prev, { id: Math.random().toString(36).slice(2), product_id: product.id, sku: product.sku, description: product.name, quantity: 1, unitPrice: product.price_eur, discount: 0, notes: '' }])
     setShowProductSearch(false)
     setProductSearch('')
     addToast({ type: 'success', title: 'Producto agregado', message: product.sku })
@@ -222,13 +222,13 @@ export default function CotizadorPage() {
     try {
       const { data: quoteData, error: quoteError } = await supabase
         .from('tt_quotes')
-        .insert({ quote_number: quoteNumber, company_id: selectedCompanyId, client_id: selectedClient?.id || null, created_by: (await supabase.from('tt_users').select('id').eq('role', 'admin').limit(1).single()).data?.id || null, status: 'borrador', notes, internal_notes: internalNotes, incoterm: incoterm || null, currency, subtotal, tax_rate: taxRate, tax_amount: taxAmount, total, validity_days: 30, expires_at: validUntil ? new Date(validUntil).toISOString() : null })
+        .insert({ number: quoteNumber, company_id: selectedCompanyId, client_id: selectedClient?.id || null, user_id: (await supabase.from('tt_users').select('id').eq('role', 'admin').limit(1).single()).data?.id || null, status: 'borrador', notes, internal_notes: internalNotes, incoterm: incoterm || null, currency, subtotal, tax_rate: taxRate, tax_amount: taxAmount, total, valid_until: validUntil ? new Date(validUntil).toISOString() : null })
         .select('id').single()
       if (quoteError) throw quoteError
-      const quoteItems = items.map((item, idx) => ({ quote_id: quoteData.id, product_id: item.product_id, sort_order: idx + 1, sku: item.sku, description: item.description, quantity: item.quantity, unit_price: item.unitPrice, discount_percent: item.discount, subtotal: item.quantity * item.unitPrice * (1 - item.discount / 100), notes: item.notes || null }))
+      const quoteItems = items.map((item, idx) => ({ quote_id: quoteData.id, product_id: item.product_id, sort_order: idx + 1, sku: item.sku, description: item.description, quantity: item.quantity, unit_price: item.unitPrice, discount_pct: item.discount, subtotal: item.quantity * item.unitPrice * (1 - item.discount / 100), notes: item.notes || null }))
       const { error: itemsError } = await supabase.from('tt_quote_items').insert(quoteItems)
       if (itemsError) throw itemsError
-      await supabase.from('tt_activity_log').insert({ entity_type: 'quote', entity_id: quoteData.id, action: 'Cotizacion creada', description: `${quoteNumber} - ${selectedClient?.company_name || 'Sin cliente'} - ${formatCurrency(total, currency)}` })
+      await supabase.from('tt_activity_log').insert({ entity_type: 'quote', entity_id: quoteData.id, action: 'Cotizacion creada', detail: `${quoteNumber} - ${selectedClient?.name || 'Sin cliente'} - ${formatCurrency(total, currency)}` })
       addToast({ type: 'success', title: 'Cotizacion guardada', message: quoteNumber })
       setItems([]); setNotes(''); setInternalNotes(''); setSelectedClient(null); generateQuoteNumber(); loadSavedQuotes()
     } catch (err) {
@@ -242,7 +242,7 @@ export default function CotizadorPage() {
     const supabase = createClient()
     const { data } = await supabase
       .from('tt_quotes')
-      .select('id, quote_number, status, total, currency, created_at, subtotal, tax_amount, tax_rate, notes, internal_notes, incoterm, client_id, company_id, client:tt_clients(company_name, tax_id, country), company:tt_companies(name, country)')
+      .select('id, number, status, total, currency, created_at, subtotal, tax_amount, tax_rate, notes, internal_notes, incoterm, client_id, company_id, client:tt_clients(name, tax_id, country), company:tt_companies(name, country)')
       .order('created_at', { ascending: false })
       .limit(50)
     setSavedQuotes((data as unknown as SavedQuote[]) || [])
@@ -261,7 +261,7 @@ export default function CotizadorPage() {
   }
 
   function shareWhatsApp() {
-    const text = `Cotizacion ${quoteNumber}\nCliente: ${selectedClient?.company_name || '-'}\nTotal: ${formatCurrency(total, currency)}\nItems: ${items.length}`
+    const text = `Cotizacion ${quoteNumber}\nCliente: ${selectedClient?.name || '-'}\nTotal: ${formatCurrency(total, currency)}\nItems: ${items.length}`
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank')
   }
 
@@ -274,7 +274,7 @@ export default function CotizadorPage() {
       {
         key: 'coti', label: 'Cotizacion', icon: '\uD83D\uDCCB',
         status: q.status === 'borrador' || q.status === 'draft' ? 'current' : q.status === 'enviada' || q.status === 'sent' ? 'current' : 'completed',
-        documentRef: q.quote_number, date: new Date(q.created_at).toLocaleDateString('es-ES'),
+        documentRef: q.number, date: new Date(q.created_at).toLocaleDateString('es-ES'),
         tooltip: `Cotizacion ${q.status}`,
       },
       { key: 'oc_cliente', label: 'OC Cliente', icon: '\uD83D\uDCC4', status: 'pending', tooltip: 'Pendiente OC del cliente' },
@@ -287,8 +287,8 @@ export default function CotizadorPage() {
     const document = {
       id: q.id,
       type: 'coti',
-      system_code: q.quote_number,
-      display_ref: q.client?.company_name ? `Cotizacion ${q.client.company_name}` : q.quote_number,
+      system_code: q.number,
+      display_ref: q.client?.name ? `Cotizacion ${q.client.name}` : q.number,
       status: q.status === 'borrador' ? 'draft' : q.status,
       currency: q.currency || 'EUR',
       total: q.total || 0,
@@ -298,7 +298,7 @@ export default function CotizadorPage() {
       created_at: q.created_at,
     }
 
-    const client = q.client ? { id: q.client_id || '', company_name: q.client.company_name, tax_id: q.client.tax_id, country: q.client.country } : undefined
+    const client = q.client ? { id: q.client_id || '', name: q.client.name, tax_id: q.client.tax_id, country: q.client.country } : undefined
     const comp = q.company ? { id: q.company_id || '', name: q.company.name, country: q.company.country } : undefined
 
     const docItems: DocumentItem[] = (q.items || []).map((it, idx) => ({
@@ -331,7 +331,7 @@ export default function CotizadorPage() {
   const filteredQuotes = savedQuotes.filter((q) => {
     if (!listSearch) return true
     const s = listSearch.toLowerCase()
-    return q.quote_number.toLowerCase().includes(s) || (q.client?.company_name || '').toLowerCase().includes(s)
+    return q.number.toLowerCase().includes(s) || (q.client?.name || '').toLowerCase().includes(s)
   })
 
   // ================================================================
@@ -425,8 +425,8 @@ export default function CotizadorPage() {
                 <DocumentListCard
                   key={q.id}
                   type="coti"
-                  systemCode={q.quote_number}
-                  clientName={q.client?.company_name || 'Sin cliente'}
+                  systemCode={q.number}
+                  clientName={q.client?.name || 'Sin cliente'}
                   date={new Date(q.created_at).toLocaleDateString('es-ES')}
                   total={q.total || 0}
                   currency={q.currency || 'EUR'}
@@ -477,7 +477,7 @@ export default function CotizadorPage() {
                 {selectedClient ? (
                   <div className="flex items-center justify-between p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]">
                     <div>
-                      <p className="text-sm font-medium text-[#F0F2F5]">{selectedClient.company_name}</p>
+                      <p className="text-sm font-medium text-[#F0F2F5]">{selectedClient.name}</p>
                       <p className="text-xs text-[#6B7280]">{selectedClient.tax_id} - {selectedClient.email}</p>
                     </div>
                     <button onClick={() => setSelectedClient(null)} className="text-[#6B7280] hover:text-red-400"><X size={16} /></button>
@@ -489,7 +489,7 @@ export default function CotizadorPage() {
                       <div className="absolute top-full left-0 right-0 mt-1 bg-[#141820] border border-[#1E2330] rounded-lg shadow-xl z-10 max-h-48 overflow-y-auto">
                         {clientResults.map((client) => (
                           <button key={client.id} onClick={() => { setSelectedClient(client); setClientSearch(''); setShowClientDropdown(false) }} className="w-full text-left px-4 py-2.5 hover:bg-[#1E2330] transition-colors">
-                            <p className="text-sm text-[#F0F2F5]">{client.company_name}</p>
+                            <p className="text-sm text-[#F0F2F5]">{client.name}</p>
                             <p className="text-xs text-[#6B7280]">{client.tax_id} - {client.email}</p>
                           </button>
                         ))}
@@ -635,7 +635,7 @@ export default function CotizadorPage() {
                   <Badge variant="default" className="mt-0.5">{p.brand}</Badge>
                 </div>
               </div>
-              <span className="text-sm font-bold text-[#FF6600] shrink-0 ml-3">{p.price_list > 0 ? formatCurrency(p.price_list, (p.price_currency || 'EUR') as 'EUR' | 'ARS' | 'USD') : 'Consultar'}</span>
+              <span className="text-sm font-bold text-[#FF6600] shrink-0 ml-3">{p.price_eur > 0 ? formatCurrency(p.price_eur, 'EUR') : 'Consultar'}</span>
             </button>
           ))}
         </div>

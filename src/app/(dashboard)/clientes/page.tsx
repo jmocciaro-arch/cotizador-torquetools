@@ -54,7 +54,7 @@ function ClientesTab() {
   const [clientActivity, setClientActivity] = useState<ActivityLog[]>([])
   const [clientQuotes, setClientQuotes] = useState<Quote[]>([])
   const [showNew, setShowNew] = useState(false)
-  const [newClient, setNewClient] = useState({ company_name: '', legal_name: '', tax_id: '', type: 'empresa' as Client['type'], country: 'ES', city: '', email: '', phone: '', address: '' })
+  const [newClient, setNewClient] = useState({ name: '', legal_name: '', tax_id: '', category: '' as string, country: 'ES', city: '', email: '', phone: '', address: '' })
   const [savingNew, setSavingNew] = useState(false)
 
   useEffect(() => { loadCountries() }, [])
@@ -74,9 +74,9 @@ function ClientesTab() {
     const supabase = createClient()
     if (reset) setLoading(true); else setLoadingMore(true)
     try {
-      let query = supabase.from('tt_clients').select('*', { count: 'exact' }).eq('is_active', true).order('company_name').range(fromOffset, fromOffset + PAGE_SIZE - 1)
+      let query = supabase.from('tt_clients').select('*', { count: 'exact' }).eq('active', true).order('name').range(fromOffset, fromOffset + PAGE_SIZE - 1)
       if (filterCountry) query = query.eq('country', filterCountry)
-      if (search.trim()) { const tokens = search.trim().toLowerCase().split(/\s+/); for (const token of tokens) { query = query.or(`company_name.ilike.%${token}%,legal_name.ilike.%${token}%,tax_id.ilike.%${token}%,email.ilike.%${token}%,city.ilike.%${token}%`) } }
+      if (search.trim()) { const tokens = search.trim().toLowerCase().split(/\s+/); for (const token of tokens) { query = query.or(`name.ilike.%${token}%,legal_name.ilike.%${token}%,tax_id.ilike.%${token}%,email.ilike.%${token}%,city.ilike.%${token}%`) } }
       const { data, count } = await query
       const newClients = (data || []) as Client[]
       if (reset) setClients(newClients); else setClients((prev) => [...prev, ...newClients])
@@ -96,28 +96,28 @@ function ClientesTab() {
 
   function startEditing() {
     if (!selectedClient) return; setEditing(true)
-    setEditData({ company_name: selectedClient.company_name, legal_name: selectedClient.legal_name, tax_id: selectedClient.tax_id, email: selectedClient.email, phone: selectedClient.phone, city: selectedClient.city, address: selectedClient.address, country: selectedClient.country, type: selectedClient.type })
+    setEditData({ name: selectedClient.name, legal_name: selectedClient.legal_name, tax_id: selectedClient.tax_id, email: selectedClient.email, phone: selectedClient.phone, city: selectedClient.city, address: selectedClient.address, country: selectedClient.country, category: selectedClient.category })
   }
 
   async function saveEdit() {
     if (!selectedClient) return; setSavingEdit(true)
     const supabase = createClient()
     try {
-      const { error } = await supabase.from('tt_clients').update({ company_name: editData.company_name, legal_name: editData.legal_name, tax_id: editData.tax_id, email: editData.email, phone: editData.phone, city: editData.city, address: editData.address, country: editData.country, type: editData.type, updated_at: new Date().toISOString() }).eq('id', selectedClient.id)
+      const { error } = await supabase.from('tt_clients').update({ name: editData.name, legal_name: editData.legal_name, tax_id: editData.tax_id, email: editData.email, phone: editData.phone, city: editData.city, address: editData.address, country: editData.country, category: editData.category, updated_at: new Date().toISOString() }).eq('id', selectedClient.id)
       if (error) throw error
       const updated = { ...selectedClient, ...editData }; setSelectedClient(updated as Client); setClients((prev) => prev.map((c) => (c.id === selectedClient.id ? (updated as Client) : c))); setEditing(false); addToast({ type: 'success', title: 'Cliente actualizado' })
     } catch { addToast({ type: 'error', title: 'Error al actualizar' }) } finally { setSavingEdit(false) }
   }
 
   async function createNewClient() {
-    if (!newClient.company_name.trim()) { addToast({ type: 'error', title: 'El nombre es obligatorio' }); return }
+    if (!newClient.name.trim()) { addToast({ type: 'error', title: 'El nombre es obligatorio' }); return }
     setSavingNew(true)
     const supabase = createClient()
     try {
-      const { error } = await supabase.from('tt_clients').insert({ company_name: newClient.company_name, legal_name: newClient.legal_name || null, tax_id: newClient.tax_id || null, type: newClient.type, country: newClient.country, city: newClient.city || null, email: newClient.email || null, phone: newClient.phone || null, address: newClient.address || null, is_active: true, tags: [], payment_terms: 'contado', credit_limit: 0, discount_default: 0, currency: newClient.country === 'AR' ? 'ARS' : newClient.country === 'US' ? 'USD' : 'EUR', total_revenue: 0 })
+      const { error } = await supabase.from('tt_clients').insert({ name: newClient.name, legal_name: newClient.legal_name || null, tax_id: newClient.tax_id || null, country: newClient.country, city: newClient.city || null, email: newClient.email || null, phone: newClient.phone || null, address: newClient.address || null, active: true, payment_terms: 'contado', credit_limit: 0 })
       if (error) throw error
-      addToast({ type: 'success', title: 'Cliente creado', message: newClient.company_name })
-      setShowNew(false); setNewClient({ company_name: '', legal_name: '', tax_id: '', type: 'empresa', country: 'ES', city: '', email: '', phone: '', address: '' })
+      addToast({ type: 'success', title: 'Cliente creado', message: newClient.name })
+      setShowNew(false); setNewClient({ name: '', legal_name: '', tax_id: '', category: '', country: 'ES', city: '', email: '', phone: '', address: '' })
       setOffset(0); setClients([]); loadClients(0, true)
     } catch { addToast({ type: 'error', title: 'Error al crear cliente' }) } finally { setSavingNew(false) }
   }
@@ -147,8 +147,8 @@ function ClientesTab() {
             <Card key={client.id} hover onClick={() => openClientDetail(client)}>
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-10 h-10 rounded-full bg-[#1E2330] flex items-center justify-center text-sm font-bold text-[#FF6600]">{client.company_name.charAt(0)}</div>
-                  <div><h3 className="text-sm font-semibold text-[#F0F2F5]">{client.company_name}</h3>{client.code && <p className="text-[10px] font-mono text-[#6B7280]">{client.code}</p>}</div>
+                  <div className="w-10 h-10 rounded-full bg-[#1E2330] flex items-center justify-center text-sm font-bold text-[#FF6600]">{client.name.charAt(0)}</div>
+                  <div><h3 className="text-sm font-semibold text-[#F0F2F5]">{client.name}</h3></div>
                 </div>
                 <span className="text-lg">{countryFlags[client.country] || client.country}</span>
               </div>
@@ -158,8 +158,7 @@ function ClientesTab() {
                 {client.phone && <div className="flex items-center gap-2 text-xs text-[#9CA3AF]"><Phone size={12} /> {client.phone}</div>}
               </div>
               <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#1E2330]">
-                <div className="flex gap-1 flex-wrap">{client.tags?.map((tag: string) => (<Badge key={tag} variant={tag === 'VIP' ? 'orange' : 'default'} size="sm">{tag}</Badge>))}<Badge variant="default" size="sm">{client.type}</Badge></div>
-                {client.total_revenue > 0 && <p className="text-sm font-semibold text-[#FF6600]">{formatCurrency(client.total_revenue, (client.currency || 'EUR') as 'EUR' | 'ARS' | 'USD')}</p>}
+                <div className="flex gap-1 flex-wrap">{client.category && <Badge variant="default" size="sm">{client.category}</Badge>}</div>
               </div>
             </Card>
           ))}
@@ -171,12 +170,12 @@ function ClientesTab() {
       )}
 
       {/* Detail Modal */}
-      <Modal isOpen={!!selectedClient} onClose={() => { setSelectedClient(null); setEditing(false) }} title={selectedClient?.company_name || ''} size="xl">
+      <Modal isOpen={!!selectedClient} onClose={() => { setSelectedClient(null); setEditing(false) }} title={selectedClient?.name || ''} size="xl">
         {selectedClient && (
           <div className="space-y-6">
             {editing ? (
               <div className="space-y-4">
-                <Input label="Nombre de empresa" value={editData.company_name || ''} onChange={(e) => setEditData({ ...editData, company_name: e.target.value })} />
+                <Input label="Nombre de empresa" value={editData.name || ''} onChange={(e) => setEditData({ ...editData, name: e.target.value })} />
                 <div className="grid grid-cols-2 gap-4"><Input label="Razon social" value={editData.legal_name || ''} onChange={(e) => setEditData({ ...editData, legal_name: e.target.value })} /><Input label="CIF / CUIT" value={editData.tax_id || ''} onChange={(e) => setEditData({ ...editData, tax_id: e.target.value })} /></div>
                 <div className="grid grid-cols-2 gap-4"><Input label="Email" type="email" value={editData.email || ''} onChange={(e) => setEditData({ ...editData, email: e.target.value })} /><Input label="Telefono" value={editData.phone || ''} onChange={(e) => setEditData({ ...editData, phone: e.target.value })} /></div>
                 <div className="flex gap-2 justify-end"><Button variant="secondary" onClick={() => setEditing(false)}>Cancelar</Button><Button variant="primary" onClick={saveEdit} loading={savingEdit}><Save size={14} /> Guardar</Button></div>
@@ -185,7 +184,7 @@ function ClientesTab() {
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">Pais</p><p className="text-sm text-[#F0F2F5]">{countryFlags[selectedClient.country] || ''} {countryNames[selectedClient.country] || selectedClient.country}</p></div>
-                  <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">Tipo</p><p className="text-sm text-[#F0F2F5] capitalize">{selectedClient.type}</p></div>
+                  <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">Categoria</p><p className="text-sm text-[#F0F2F5] capitalize">{selectedClient.category || '-'}</p></div>
                   <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]"><p className="text-xs text-[#6B7280]">CIF/CUIT</p><p className="text-sm font-mono text-[#F0F2F5]">{selectedClient.tax_id || '-'}</p></div>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -195,7 +194,7 @@ function ClientesTab() {
                 </div>
                 {clientQuotes.length > 0 && (
                   <div><h4 className="text-sm font-semibold text-[#F0F2F5] mb-3">Cotizaciones recientes</h4>
-                    <div className="space-y-2">{clientQuotes.map((q) => (<div key={q.id} className="flex items-center justify-between p-2.5 rounded-lg bg-[#0F1218] border border-[#1E2330]"><div><span className="text-xs font-mono text-[#FF6600]">{q.quote_number}</span><Badge variant="default" className="ml-2">{q.status}</Badge></div><span className="text-sm font-semibold text-[#F0F2F5]">{formatCurrency(q.total, (q.currency || 'EUR') as 'EUR' | 'ARS' | 'USD')}</span></div>))}</div>
+                    <div className="space-y-2">{clientQuotes.map((q) => (<div key={q.id} className="flex items-center justify-between p-2.5 rounded-lg bg-[#0F1218] border border-[#1E2330]"><div><span className="text-xs font-mono text-[#FF6600]">{q.number}</span><Badge variant="default" className="ml-2">{q.status}</Badge></div><span className="text-sm font-semibold text-[#F0F2F5]">{formatCurrency(q.total, (q.currency || 'EUR') as 'EUR' | 'ARS' | 'USD')}</span></div>))}</div>
                   </div>
                 )}
               </>
@@ -207,11 +206,11 @@ function ClientesTab() {
       {/* New Client Modal */}
       <Modal isOpen={showNew} onClose={() => setShowNew(false)} title="Nuevo Cliente" size="lg">
         <div className="space-y-4">
-          <Input label="Nombre de empresa *" value={newClient.company_name} onChange={(e) => setNewClient({ ...newClient, company_name: e.target.value })} />
+          <Input label="Nombre de empresa *" value={newClient.name} onChange={(e) => setNewClient({ ...newClient, name: e.target.value })} />
           <Input label="Razon social" value={newClient.legal_name} onChange={(e) => setNewClient({ ...newClient, legal_name: e.target.value })} />
           <div className="grid grid-cols-2 gap-4">
             <Input label="CIF / CUIT" value={newClient.tax_id} onChange={(e) => setNewClient({ ...newClient, tax_id: e.target.value })} />
-            <Select label="Tipo" value={newClient.type} onChange={(e) => setNewClient({ ...newClient, type: e.target.value as Client['type'] })} options={[{ value: 'empresa', label: 'Empresa' }, { value: 'autonomo', label: 'Autonomo' }, { value: 'particular', label: 'Particular' }, { value: 'distribuidor', label: 'Distribuidor' }]} />
+            <Select label="Categoria" value={newClient.category} onChange={(e) => setNewClient({ ...newClient, category: e.target.value })} options={[{ value: 'empresa', label: 'Empresa' }, { value: 'autonomo', label: 'Autonomo' }, { value: 'particular', label: 'Particular' }, { value: 'distribuidor', label: 'Distribuidor' }]} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <Select label="Pais" value={newClient.country} onChange={(e) => setNewClient({ ...newClient, country: e.target.value })} options={Object.entries(countryNames).map(([k, v]) => ({ value: k, label: v }))} />
@@ -240,8 +239,8 @@ function PotencialesTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_clients').select('*').or('tags.cs.{potential},tags.cs.{lead},type.eq.particular').eq('is_active', true).order('created_at', { ascending: false })
-    if (search) q = q.ilike('company_name', `%${search}%`)
+    let q = supabase.from('tt_clients').select('*').or('category.eq.potential,category.eq.lead,source.eq.lead').eq('active', true).order('created_at', { ascending: false })
+    if (search) q = q.ilike('name', `%${search}%`)
     const { data } = await q
     // Also include clients with no revenue as potential
     const allData = data || []
@@ -252,7 +251,7 @@ function PotencialesTab() {
   useEffect(() => { load() }, [load])
 
   const convertToClient = async (lead: Row) => {
-    await supabase.from('tt_clients').update({ tags: ['cliente'], type: 'empresa' }).eq('id', lead.id)
+    await supabase.from('tt_clients').update({ category: 'cliente' }).eq('id', lead.id)
     addToast({ type: 'success', title: 'Convertido a cliente' })
     load()
   }
@@ -274,8 +273,8 @@ function PotencialesTab() {
             <TableBody>
               {leads.map((l) => (
                 <TableRow key={l.id as string}>
-                  <TableCell className="font-medium text-[#F0F2F5]">{(l.company_name as string) || '-'}</TableCell>
-                  <TableCell><Badge variant="default">{(l.type as string) || '-'}</Badge></TableCell>
+                  <TableCell className="font-medium text-[#F0F2F5]">{(l.name as string) || '-'}</TableCell>
+                  <TableCell><Badge variant="default">{(l.category as string) || '-'}</Badge></TableCell>
                   <TableCell className="text-sm text-[#9CA3AF]">{(l.email as string) || '-'}</TableCell>
                   <TableCell>{countryFlags[(l.country as string)] || (l.country as string) || '-'}</TableCell>
                   <TableCell><Button variant="ghost" size="sm" onClick={() => convertToClient(l)} title="Convertir a cliente"><UserPlus size={14} /></Button></TableCell>
@@ -300,8 +299,8 @@ function ContactosTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_client_contacts').select('*, tt_clients(company_name)').order('full_name')
-    if (search) q = q.or(`full_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
+    let q = supabase.from('tt_clients').select('id, name, email, phone, city, country, category').eq('active', true).order('name')
+    if (search) q = q.or(`name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`)
     const { data } = await q
     setContacts(data || [])
     setLoading(false)
@@ -322,13 +321,13 @@ function ContactosTab() {
           <div className="text-center py-20 text-[#6B7280]"><Contact size={48} className="mx-auto mb-3 opacity-30" /><p>No hay contactos</p></div>
         ) : (
           <Table>
-            <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Cargo</TableHead><TableHead>Empresa</TableHead><TableHead>Email</TableHead><TableHead>Telefono</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Nombre</TableHead><TableHead>Categoria</TableHead><TableHead>Ciudad</TableHead><TableHead>Email</TableHead><TableHead>Telefono</TableHead></TableRow></TableHeader>
             <TableBody>
               {contacts.map((c) => (
                 <TableRow key={c.id as string}>
-                  <TableCell className="font-medium text-[#F0F2F5]">{(c.full_name as string) || '-'}</TableCell>
-                  <TableCell className="text-sm text-[#9CA3AF]">{(c.position as string) || '-'}</TableCell>
-                  <TableCell className="text-sm">{((c.tt_clients as Row)?.company_name as string) || '-'}</TableCell>
+                  <TableCell className="font-medium text-[#F0F2F5]">{(c.name as string) || '-'}</TableCell>
+                  <TableCell className="text-sm text-[#9CA3AF]">{(c.category as string) || '-'}</TableCell>
+                  <TableCell className="text-sm">{(c.city as string) || '-'}</TableCell>
                   <TableCell className="text-sm text-[#9CA3AF]">{(c.email as string) || '-'}</TableCell>
                   <TableCell className="text-sm text-[#9CA3AF]">{(c.phone as string) || '-'}</TableCell>
                 </TableRow>

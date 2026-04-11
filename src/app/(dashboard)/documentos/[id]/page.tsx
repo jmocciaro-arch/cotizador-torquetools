@@ -103,7 +103,7 @@ const mockDocument = {
 
 const mockClient = {
   id: 'mirgor-uuid',
-  company_name: 'Grupo Mirgor S.A.',
+  name: 'Grupo Mirgor S.A.',
   tax_id: '30-50437103-8',
   country: 'AR',
 }

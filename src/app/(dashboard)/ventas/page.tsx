@@ -101,9 +101,9 @@ function PresupuestosTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_quotes').select('*, tt_clients(name, company_name, tax_id, country)').order('created_at', { ascending: false })
+    let q = supabase.from('tt_quotes').select('*, tt_clients(name, name, tax_id, country)').order('created_at', { ascending: false })
     if (statusFilter) q = q.eq('status', statusFilter)
-    if (search) q = q.or(`doc_number.ilike.%${search}%,quote_number.ilike.%${search}%`)
+    if (search) q = q.or(`doc_number.ilike.%${search}%,number.ilike.%${search}%`)
     const { data } = await q
     setQuotes(data || [])
     setLoading(false)
@@ -120,8 +120,8 @@ function PresupuestosTab() {
   // Detail view
   if (selectedQuote) {
     const clientObj = selectedQuote.tt_clients as Row | null
-    const clientName = (clientObj?.company_name as string) || (clientObj?.name as string) || 'Sin cliente'
-    const ref = (selectedQuote.doc_number as string) || (selectedQuote.quote_number as string) || ''
+    const clientName = (clientObj?.name as string) || (clientObj?.name as string) || 'Sin cliente'
+    const ref = (selectedQuote.doc_number as string) || (selectedQuote.number as string) || ''
 
     const steps: WorkflowStep[] = [
       { key: 'coti', label: 'Cotizacion', icon: '\uD83D\uDCCB', status: 'current', documentRef: ref },
@@ -157,7 +157,7 @@ function PresupuestosTab() {
           tax_amount: (selectedQuote.tax_amount as number) || 0,
           created_at: (selectedQuote.created_at as string) || new Date().toISOString(),
         }}
-        client={clientObj ? { id: '', company_name: clientName, tax_id: clientObj.tax_id as string, country: clientObj.country as string } : undefined}
+        client={clientObj ? { id: '', name: clientName, tax_id: clientObj.tax_id as string, country: clientObj.country as string } : undefined}
         notes={[]}
         onAddNote={() => {}}
         onBack={() => setSelectedQuote(null)}
@@ -196,8 +196,8 @@ function PresupuestosTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {quotes.map((q) => {
             const clientObj = q.tt_clients as Row | null
-            const clientName = (clientObj?.company_name as string) || (clientObj?.name as string) || 'Sin cliente'
-            const ref = (q.doc_number as string) || (q.quote_number as string) || '-'
+            const clientName = (clientObj?.name as string) || (clientObj?.name as string) || 'Sin cliente'
+            const ref = (q.doc_number as string) || (q.number as string) || '-'
             const st = (q.status as string) || 'draft'
             return (
               <DocumentListCard
@@ -243,7 +243,7 @@ function PedidosTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_sales_orders').select('*, tt_clients(name, company_name, tax_id, country)').order('created_at', { ascending: false })
+    let q = supabase.from('tt_sales_orders').select('*, tt_clients(name, name, tax_id, country)').order('created_at', { ascending: false })
     if (statusFilter) q = q.eq('status', statusFilter)
     if (search) q = q.ilike('doc_number', `%${search}%`)
     const { data } = await q
@@ -257,7 +257,7 @@ function PedidosTab() {
     const [{ data: cl }, { data: qt }, { data: pr }] = await Promise.all([
       supabase.from('tt_clients').select('id, name').order('name').limit(500),
       supabase.from('tt_quotes').select('id, doc_number, client_id, total').eq('status', 'draft').order('created_at', { ascending: false }),
-      supabase.from('tt_products').select('id, sku, name, sell_price').order('name').limit(500),
+      supabase.from('tt_products').select('id, sku, name, price_eur').order('name').limit(500),
     ])
     setClients(cl || []); setQuotesData(qt || []); setProducts(pr || [])
   }
@@ -332,7 +332,7 @@ function PedidosTab() {
   // Detail view using DocumentDetailLayout
   if (selectedSO && !showDelivery) {
     const clientObj = selectedSO.tt_clients as Row | null
-    const clientName = (clientObj?.company_name as string) || (clientObj?.name as string) || 'Sin cliente'
+    const clientName = (clientObj?.name as string) || (clientObj?.name as string) || 'Sin cliente'
     const st = (selectedSO.status as string) || 'open'
 
     const totalOrdered = soItems.reduce((s, it) => s + ((it.qty_ordered as number) || (it.quantity as number) || 0), 0)
@@ -388,7 +388,7 @@ function PedidosTab() {
           tax_amount: (selectedSO.tax_amount as number) || 0,
           created_at: (selectedSO.created_at as string) || new Date().toISOString(),
         }}
-        client={clientObj ? { id: '', company_name: clientName, tax_id: (clientObj.tax_id as string), country: (clientObj.country as string) } : undefined}
+        client={clientObj ? { id: '', name: clientName, tax_id: (clientObj.tax_id as string), country: (clientObj.country as string) } : undefined}
         deliveryProgress={{
           clientName, deliveredPct, invoicedPct, collectedPct: 0,
           itemStatuses: docItems.map((i) => ({ label: i.statusLabel, color: i.statusColor })),
@@ -441,7 +441,7 @@ function PedidosTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {orders.map((so) => {
             const clientObj = so.tt_clients as Row | null
-            const clientName = (clientObj?.company_name as string) || (clientObj?.name as string) || '-'
+            const clientName = (clientObj?.name as string) || (clientObj?.name as string) || '-'
             const st = (so.status as string) || 'open'
             const totalOrdered = 1 // Placeholder - real calc needs items
             return (
@@ -479,7 +479,7 @@ function PedidosTab() {
               <div className="flex items-center justify-between mb-2"><span className="text-sm font-medium text-[#9CA3AF]">Items</span><Button variant="ghost" size="sm" onClick={() => setNewLines([...newLines, { product_id: '', name: '', qty: 1, price: 0 }])}><Plus size={14} /> Agregar</Button></div>
               {newLines.map((l, i) => (
                 <div key={i} className="flex gap-2 mb-2 items-end">
-                  <div className="flex-1"><Select options={products.map(p => ({ value: p.id as string, label: `${p.sku || ''} - ${p.name}` }))} value={l.product_id} onChange={(e) => { const u = [...newLines]; const p = products.find(pr => pr.id === e.target.value); if (p) u[i] = { ...u[i], product_id: p.id as string, name: (p.name || '') as string, price: (p.sell_price || 0) as number }; setNewLines(u) }} placeholder="Producto" /></div>
+                  <div className="flex-1"><Select options={products.map(p => ({ value: p.id as string, label: `${p.sku || ''} - ${p.name}` }))} value={l.product_id} onChange={(e) => { const u = [...newLines]; const p = products.find(pr => pr.id === e.target.value); if (p) u[i] = { ...u[i], product_id: p.id as string, name: (p.name || '') as string, price: (p.price_eur || 0) as number }; setNewLines(u) }} placeholder="Producto" /></div>
                   <Input type="number" value={l.qty} onChange={(e) => { const u = [...newLines]; u[i].qty = Number(e.target.value); setNewLines(u) }} className="w-20" />
                   <Input type="number" value={l.price} onChange={(e) => { const u = [...newLines]; u[i].price = Number(e.target.value); setNewLines(u) }} className="w-28" />
                   <Button variant="ghost" size="sm" onClick={() => setNewLines(newLines.filter((_, idx) => idx !== i))}><X size={14} /></Button>
@@ -520,7 +520,7 @@ function AlbaranesTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_delivery_notes').select('*, tt_clients(name, company_name), tt_sales_orders(doc_number)').order('created_at', { ascending: false })
+    let q = supabase.from('tt_delivery_notes').select('*, tt_clients(name, name), tt_sales_orders(doc_number)').order('created_at', { ascending: false })
     if (statusFilter) q = q.eq('status', statusFilter)
     if (search) q = q.ilike('doc_number', `%${search}%`)
     const { data } = await q
@@ -554,7 +554,7 @@ function AlbaranesTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {notes.map((n) => {
             const clientObj = n.tt_clients as Row | null
-            const clientName = (clientObj?.company_name as string) || (clientObj?.name as string) || '-'
+            const clientName = (clientObj?.name as string) || (clientObj?.name as string) || '-'
             const st = (n.status as string) || 'pending'
             return (
               <DocumentListCard
@@ -588,7 +588,7 @@ function FacturasTab() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_invoices').select('*, tt_clients(name, company_name)').eq('type', 'sale').order('created_at', { ascending: false })
+    let q = supabase.from('tt_invoices').select('*, tt_clients(name, name)').eq('type', 'sale').order('created_at', { ascending: false })
     if (statusFilter) q = q.eq('status', statusFilter)
     if (search) q = q.ilike('doc_number', `%${search}%`)
     const { data } = await q
@@ -631,7 +631,7 @@ function FacturasTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {invoices.map((inv) => {
             const clientObj = inv.tt_clients as Row | null
-            const clientName = (clientObj?.company_name as string) || (clientObj?.name as string) || '-'
+            const clientName = (clientObj?.name as string) || (clientObj?.name as string) || '-'
             const st = (inv.status as string) || 'draft'
             return (
               <DocumentListCard
