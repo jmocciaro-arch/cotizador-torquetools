@@ -17,13 +17,14 @@ import { formatCurrency, formatDate, formatRelative, getInitials } from '@/lib/u
 import { DocumentDetailLayout, type WorkflowStep } from '@/components/workflow/document-detail-layout'
 import { DocumentItemsTree, type DocumentItem } from '@/components/workflow/document-items-tree'
 import { DocumentListCard } from '@/components/workflow/document-list-card'
-import type { Supplier, SupplierContact } from '@/types'
+import type { Supplier, SupplierContact, PurchaseInvoice, PurchasePayment } from '@/types'
 import {
   ShoppingCart, Plus, Package, Truck, CheckCircle, Clock,
   FileText, Loader2, X, Send, Users, DollarSign, FileCheck,
   Building2, Phone, Mail, MessageSquare, MapPin, Globe,
   Hash, ArrowLeft, Edit3, Save, Trash2, Star, ChevronRight,
-  Contact
+  Contact, CreditCard, CalendarDays, AlertTriangle, Banknote,
+  Receipt, ArrowUpRight, CalendarClock, CircleDollarSign
 } from 'lucide-react'
 
 type Row = Record<string, unknown>
@@ -36,12 +37,60 @@ const PO_STATUS: Record<string, { label: string; variant: 'default' | 'success' 
   closed: { label: 'Cerrada', variant: 'danger' },
 }
 
+const INVOICE_STATUS: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' | 'orange' }> = {
+  pending: { label: 'Pendiente', variant: 'warning' },
+  due_soon: { label: 'Vence pronto', variant: 'orange' },
+  overdue: { label: 'Vencida', variant: 'danger' },
+  paid: { label: 'Pagada', variant: 'success' },
+  partial: { label: 'Pago parcial', variant: 'info' },
+}
+
 const comprasTabs = [
   { id: 'proveedores', label: 'Proveedores', icon: <Users size={16} /> },
   { id: 'pedidos', label: 'Pedidos', icon: <ShoppingCart size={16} /> },
   { id: 'recepciones', label: 'Recepciones', icon: <Truck size={16} /> },
   { id: 'facturas', label: 'Facturas compra', icon: <FileCheck size={16} /> },
+  { id: 'pagos', label: 'Pagos', icon: <CreditCard size={16} /> },
+  { id: 'calendario', label: 'Calendario pagos', icon: <CalendarDays size={16} /> },
 ]
+
+// ===============================================================
+// HELPERS
+// ===============================================================
+function getInvoiceDisplayStatus(inv: PurchaseInvoice): string {
+  if (inv.status === 'paid') return 'paid'
+  if (inv.status === 'partial') return 'partial'
+  if (!inv.due_date) return 'pending'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const due = new Date(inv.due_date)
+  due.setHours(0, 0, 0, 0)
+  const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0) return 'overdue'
+  if (diffDays <= 7) return 'due_soon'
+  return 'pending'
+}
+
+function getDueDateColor(dueDate: string | null): string {
+  if (!dueDate) return '#6B7280'
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const due = new Date(dueDate)
+  due.setHours(0, 0, 0, 0)
+  const diffDays = Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+  if (diffDays < 0) return '#EF4444'   // overdue - red
+  if (diffDays <= 3) return '#F97316'   // 1-3d - orange
+  if (diffDays <= 7) return '#EAB308'   // 3-7d - yellow
+  return '#22C55E'                      // >7d - green
+}
+
+function generateInvoiceNumber(): string {
+  const now = new Date()
+  const y = now.getFullYear().toString().slice(-2)
+  const m = (now.getMonth() + 1).toString().padStart(2, '0')
+  const r = Math.floor(Math.random() * 9999).toString().padStart(4, '0')
+  return `FC-${y}${m}-${r}`
+}
 
 // Helper: build workflow steps for a purchase order
 function buildPOWorkflow(po: Row): WorkflowStep[] {
@@ -61,6 +110,99 @@ function buildPOWorkflow(po: Row): WorkflowStep[] {
 
 const countryFlags: Record<string, string> = { ES: '\u{1F1EA}\u{1F1F8}', AR: '\u{1F1E6}\u{1F1F7}', US: '\u{1F1FA}\u{1F1F8}', CL: '\u{1F1E8}\u{1F1F1}', UY: '\u{1F1FA}\u{1F1FE}', BR: '\u{1F1E7}\u{1F1F7}', MX: '\u{1F1F2}\u{1F1FD}', CO: '\u{1F1E8}\u{1F1F4}', DE: '\u{1F1E9}\u{1F1EA}', FR: '\u{1F1EB}\u{1F1F7}', IT: '\u{1F1EE}\u{1F1F9}', GB: '\u{1F1EC}\u{1F1E7}', CN: '\u{1F1E8}\u{1F1F3}', JP: '\u{1F1EF}\u{1F1F5}', TW: '\u{1F1F9}\u{1F1FC}', KR: '\u{1F1F0}\u{1F1F7}', PT: '\u{1F1F5}\u{1F1F9}' }
 const countryNames: Record<string, string> = { ES: 'Espana', AR: 'Argentina', US: 'Estados Unidos', CL: 'Chile', UY: 'Uruguay', BR: 'Brasil', MX: 'Mexico', CO: 'Colombia', DE: 'Alemania', FR: 'Francia', IT: 'Italia', GB: 'Reino Unido', CN: 'China', JP: 'Japon', TW: 'Taiwan', KR: 'Corea del Sur', PT: 'Portugal' }
+
+// ===============================================================
+// PAYMENT ALERTS CHECKER
+// ===============================================================
+async function checkPaymentAlerts() {
+  const supabase = createClient()
+  const today = new Date().toISOString().split('T')[0]
+  const in7days = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0]
+
+  // 1) Invoices due within 7 days (not paid)
+  const { data: dueSoon } = await supabase
+    .from('tt_purchase_invoices')
+    .select('id, number, total, due_date, supplier_id')
+    .neq('status', 'paid')
+    .gte('due_date', today)
+    .lte('due_date', in7days)
+
+  for (const inv of dueSoon || []) {
+    const { data: existing } = await supabase
+      .from('tt_alerts')
+      .select('id')
+      .eq('type', 'payment_due_soon')
+      .eq('document_id', inv.id)
+      .eq('status', 'active')
+      .limit(1)
+    if (!existing?.length) {
+      await supabase.from('tt_alerts').insert({
+        type: 'payment_due_soon',
+        severity: 'warning',
+        title: `Factura ${inv.number} vence el ${formatDate(inv.due_date)}`,
+        description: `Monto: ${formatCurrency(inv.total)}. Programar pago.`,
+        document_id: inv.id,
+        status: 'active',
+      })
+    }
+  }
+
+  // 2) Overdue invoices
+  const { data: overdue } = await supabase
+    .from('tt_purchase_invoices')
+    .select('id, number, total, due_date')
+    .neq('status', 'paid')
+    .lt('due_date', today)
+
+  for (const inv of overdue || []) {
+    const { data: existing } = await supabase
+      .from('tt_alerts')
+      .select('id')
+      .eq('type', 'payment_overdue')
+      .eq('document_id', inv.id)
+      .eq('status', 'active')
+      .limit(1)
+    if (!existing?.length) {
+      await supabase.from('tt_alerts').insert({
+        type: 'payment_overdue',
+        severity: 'urgent',
+        title: `VENCIDA: Factura ${inv.number}`,
+        description: `Vencio el ${formatDate(inv.due_date)}. Monto: ${formatCurrency(inv.total)}.`,
+        document_id: inv.id,
+        status: 'active',
+      })
+    }
+  }
+
+  // 3) Advance payments with goods not received past expected date
+  const { data: advances } = await supabase
+    .from('tt_purchase_payments')
+    .select('id, amount, expected_goods_date, supplier_id')
+    .eq('is_advance', true)
+    .eq('goods_received', false)
+    .lte('expected_goods_date', today)
+
+  for (const adv of advances || []) {
+    const { data: existing } = await supabase
+      .from('tt_alerts')
+      .select('id')
+      .eq('type', 'advance_goods_pending')
+      .eq('document_id', adv.id)
+      .eq('status', 'active')
+      .limit(1)
+    if (!existing?.length) {
+      await supabase.from('tt_alerts').insert({
+        type: 'advance_goods_pending',
+        severity: 'warning',
+        title: `Anticipo sin mercaderia recibida`,
+        description: `Se esperaba recepcion el ${formatDate(adv.expected_goods_date!)}. Monto anticipo: ${formatCurrency(adv.amount)}.`,
+        document_id: adv.id,
+        status: 'active',
+      })
+    }
+  }
+}
+
 
 // ===============================================================
 // SUPPLIER DETAIL VIEW (3-column layout like Clients)
@@ -85,6 +227,10 @@ function SupplierDetail({ supplier, onClose, onUpdate }: {
   const [savingContact, setSavingContact] = useState(false)
   const [editingContact, setEditingContact] = useState<string | null>(null)
   const [editContactData, setEditContactData] = useState<Partial<SupplierContact>>({})
+  // Payment data for supplier detail
+  const [pendingInvoices, setPendingInvoices] = useState<PurchaseInvoice[]>([])
+  const [totalPaidYear, setTotalPaidYear] = useState(0)
+  const [lastPayment, setLastPayment] = useState<PurchasePayment | null>(null)
 
   const loadContacts = useCallback(async () => {
     setLoadingContacts(true)
@@ -109,7 +255,36 @@ function SupplierDetail({ supplier, onClose, onUpdate }: {
     setLoadingPOs(false)
   }, [supplier.name, supabase])
 
-  useEffect(() => { loadContacts(); loadPurchaseOrders() }, [loadContacts, loadPurchaseOrders])
+  const loadPaymentInfo = useCallback(async () => {
+    // Pending invoices for this supplier
+    const { data: invs } = await supabase
+      .from('tt_purchase_invoices')
+      .select('*')
+      .eq('supplier_id', supplier.id)
+      .neq('status', 'paid')
+      .order('due_date', { ascending: true })
+    setPendingInvoices((invs || []) as PurchaseInvoice[])
+
+    // Total paid this year
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]
+    const { data: payments } = await supabase
+      .from('tt_purchase_payments')
+      .select('amount')
+      .eq('supplier_id', supplier.id)
+      .gte('payment_date', yearStart)
+    setTotalPaidYear((payments || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0))
+
+    // Last payment
+    const { data: lastP } = await supabase
+      .from('tt_purchase_payments')
+      .select('*')
+      .eq('supplier_id', supplier.id)
+      .order('payment_date', { ascending: false })
+      .limit(1)
+    setLastPayment(lastP?.[0] as PurchasePayment || null)
+  }, [supplier.id, supabase])
+
+  useEffect(() => { loadContacts(); loadPurchaseOrders(); loadPaymentInfo() }, [loadContacts, loadPurchaseOrders, loadPaymentInfo])
 
   function startEditing() {
     setEditing(true)
@@ -184,12 +359,16 @@ function SupplierDetail({ supplier, onClose, onUpdate }: {
 
   const totalSpend = purchaseOrders.reduce((s, po) => s + ((po.total as number) || 0), 0)
   const pendingPOs = purchaseOrders.filter(po => po.status === 'sent' || po.status === 'partial')
+  const hasOverdueInvoice = pendingInvoices.some(inv => {
+    if (!inv.due_date) return false
+    return new Date(inv.due_date) < new Date()
+  })
 
   const detailTabs = [
     { id: 'datos', label: 'Datos' },
     { id: 'contactos', label: `Contactos (${contacts.length})` },
     { id: 'historial', label: `Historial (${purchaseOrders.length})` },
-    { id: 'productos', label: 'Productos' },
+    { id: 'pagos', label: `Pagos (${pendingInvoices.length})` },
   ]
 
   return (
@@ -207,6 +386,9 @@ function SupplierDetail({ supplier, onClose, onUpdate }: {
             <h1 className="text-base font-bold text-[#F0F2F5] leading-tight">{supplier.legal_name || supplier.name}</h1>
             <p className="text-xs text-[#6B7280]">{countryFlags[supplier.country || ''] || ''} {supplier.tax_id || 'Sin CIF/NIF'}</p>
           </div>
+          {hasOverdueInvoice && (
+            <Badge variant="danger" size="sm">PAGO VENCIDO</Badge>
+          )}
         </div>
         <div className="flex gap-2">
           {supplier.phone && <a href={`tel:${supplier.phone}`}><Button variant="ghost" size="sm"><Phone size={14} /></Button></a>}
@@ -423,11 +605,62 @@ function SupplierDetail({ supplier, onClose, onUpdate }: {
             </div>
           )}
 
-          {/* TAB: Productos */}
-          {activeDetailTab === 'productos' && (
+          {/* TAB: Pagos del proveedor */}
+          {activeDetailTab === 'pagos' && (
             <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-[#F0F2F5]">Productos suministrados</h3>
-              <Card><p className="text-center text-[#6B7280] py-6">Vinculacion de productos por proveedor disponible proximamente</p></Card>
+              <h3 className="text-sm font-semibold text-[#F0F2F5]">Situacion de pagos</h3>
+
+              {/* Payment KPIs */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="p-4 rounded-xl bg-[#0F1218] border border-[#1E2330]">
+                  <p className="text-xs text-[#6B7280] mb-1">Pagos pendientes</p>
+                  <p className="text-lg font-bold text-amber-400">{pendingInvoices.length}</p>
+                  <p className="text-xs text-[#4B5563]">{formatCurrency(pendingInvoices.reduce((s, i) => s + i.total, 0))}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-[#0F1218] border border-[#1E2330]">
+                  <p className="text-xs text-[#6B7280] mb-1">Total pagado {new Date().getFullYear()}</p>
+                  <p className="text-lg font-bold text-emerald-400">{formatCurrency(totalPaidYear)}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-[#0F1218] border border-[#1E2330]">
+                  <p className="text-xs text-[#6B7280] mb-1">Ultimo pago</p>
+                  <p className="text-lg font-bold text-[#F0F2F5]">{lastPayment ? formatCurrency(lastPayment.amount) : '-'}</p>
+                  <p className="text-xs text-[#4B5563]">{lastPayment ? formatDate(lastPayment.payment_date) : 'Sin pagos'}</p>
+                </div>
+              </div>
+
+              {/* Pending invoices list */}
+              {pendingInvoices.length === 0 ? (
+                <Card><p className="text-center text-[#6B7280] py-6">No hay facturas pendientes de pago</p></Card>
+              ) : (
+                <div className="space-y-2">
+                  {pendingInvoices.map(inv => {
+                    const ds = getInvoiceDisplayStatus(inv)
+                    const dueDateCol = getDueDateColor(inv.due_date)
+                    return (
+                      <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]">
+                        <div className="flex items-center gap-3">
+                          <div className="w-2 h-8 rounded-full" style={{ backgroundColor: dueDateCol }} />
+                          <div>
+                            <p className="text-sm font-semibold text-[#F0F2F5]">{inv.number}</p>
+                            <p className="text-xs text-[#6B7280]">Vence: {inv.due_date ? formatDate(inv.due_date) : 'Sin fecha'}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-[#F0F2F5]">{formatCurrency(inv.total)}</p>
+                          <Badge variant={INVOICE_STATUS[ds]?.variant || 'default'} size="sm">{INVOICE_STATUS[ds]?.label || ds}</Badge>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {hasOverdueInvoice && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3">
+                  <AlertTriangle size={18} className="text-red-400 shrink-0" />
+                  <p className="text-sm text-red-400">Este proveedor tiene facturas vencidas sin pagar</p>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -448,6 +681,10 @@ function SupplierDetail({ supplier, onClose, onUpdate }: {
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-orange-500/10 flex items-center justify-center"><Contact size={14} className="text-orange-400" /></div>
                 <div><p className="text-xs text-[#6B7280]">Contactos</p><p className="text-sm font-semibold text-[#F0F2F5]">{contacts.length}</p></div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center"><Receipt size={14} className="text-amber-400" /></div>
+                <div><p className="text-xs text-[#6B7280]">Facturas pendientes</p><p className="text-sm font-semibold text-[#F0F2F5]">{pendingInvoices.length}</p></div>
               </div>
             </div>
           </Card>
@@ -549,27 +786,17 @@ function ProveedoresTab() {
     if (!newSupplier.name.trim()) { addToast({ type: 'error', title: 'El nombre es obligatorio' }); return }
     setSavingNew(true)
     const { error } = await supabase.from('tt_suppliers').insert({
-      name: newSupplier.name,
-      legal_name: newSupplier.legal_name || null,
-      tax_id: newSupplier.tax_id || null,
-      category: newSupplier.category || null,
-      country: newSupplier.country,
-      city: newSupplier.city || null,
-      email: newSupplier.email || null,
-      phone: newSupplier.phone || null,
-      address: newSupplier.address || null,
-      payment_terms: newSupplier.payment_terms || null,
-      notes: newSupplier.notes || null,
-      active: true,
+      name: newSupplier.name, legal_name: newSupplier.legal_name || null, tax_id: newSupplier.tax_id || null,
+      category: newSupplier.category || null, country: newSupplier.country, city: newSupplier.city || null,
+      email: newSupplier.email || null, phone: newSupplier.phone || null, address: newSupplier.address || null,
+      payment_terms: newSupplier.payment_terms || null, notes: newSupplier.notes || null, active: true,
     })
     if (!error) {
       addToast({ type: 'success', title: 'Proveedor creado', message: newSupplier.name })
       setShowNew(false)
       setNewSupplier({ name: '', legal_name: '', tax_id: '', category: '', country: 'ES', city: '', email: '', phone: '', address: '', payment_terms: '', notes: '' })
       load()
-    } else {
-      addToast({ type: 'error', title: 'Error', message: error.message })
-    }
+    } else { addToast({ type: 'error', title: 'Error', message: error.message }) }
     setSavingNew(false)
   }
 
@@ -579,35 +806,20 @@ function ProveedoresTab() {
 
   return (
     <div className="space-y-4">
-      {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <KPICard label="Proveedores" value={filtered.length} icon={<Building2 size={22} />} />
         <KPICard label="Paises" value={countries.length} icon={<Globe size={22} />} />
         <KPICard label="Fabricantes" value={suppliers.filter(s => s.category === 'fabricante').length} icon={<Package size={22} />} color="#10B981" />
         <KPICard label="Con contactos" value={0} icon={<Contact size={22} />} />
       </div>
-
-      {/* Actions + Export */}
       <div className="flex justify-end gap-2">
-        <ExportButton
-          data={filtered as unknown as Record<string, unknown>[]}
-          filename="proveedores_torquetools"
-          columns={[
-            { key: 'name', label: 'Nombre' },
-            { key: 'legal_name', label: 'Razon Social' },
-            { key: 'tax_id', label: 'CIF/NIF' },
-            { key: 'email', label: 'Email' },
-            { key: 'phone', label: 'Telefono' },
-            { key: 'country', label: 'Pais' },
-            { key: 'city', label: 'Ciudad' },
-            { key: 'category', label: 'Categoria' },
-            { key: 'payment_terms', label: 'Condiciones Pago' },
-          ]}
-        />
+        <ExportButton data={filtered as unknown as Record<string, unknown>[]} filename="proveedores_torquetools" columns={[
+          { key: 'name', label: 'Nombre' }, { key: 'legal_name', label: 'Razon Social' }, { key: 'tax_id', label: 'CIF/NIF' },
+          { key: 'email', label: 'Email' }, { key: 'phone', label: 'Telefono' }, { key: 'country', label: 'Pais' },
+          { key: 'city', label: 'Ciudad' }, { key: 'category', label: 'Categoria' }, { key: 'payment_terms', label: 'Condiciones Pago' },
+        ]} />
         <Button variant="primary" onClick={() => setShowNew(true)}><Plus size={16} /> Nuevo Proveedor</Button>
       </div>
-
-      {/* Search & Filters */}
       <div className="flex flex-col sm:flex-row gap-3">
         <SearchBar placeholder="Buscar proveedor, CIF, email..." value={search} onChange={setSearch} className="flex-1 max-w-lg" />
         <div className="flex gap-2 flex-wrap">
@@ -619,8 +831,6 @@ function ProveedoresTab() {
           ))}
         </div>
       </div>
-
-      {/* Supplier List */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -667,8 +877,6 @@ function ProveedoresTab() {
           ))}
         </div>
       )}
-
-      {/* NEW SUPPLIER MODAL */}
       <Modal isOpen={showNew} onClose={() => setShowNew(false)} title="Nuevo Proveedor" size="xl">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
@@ -781,28 +989,21 @@ function PedidosCompraTab() {
     setSelectedPO(null); load()
   }
 
-  // Detail view using DocumentDetailLayout
   if (selectedPO && !showReceive) {
     const st = (selectedPO.status as string) || 'draft'
     const supplierName = (selectedPO.supplier_name as string) || 'Sin proveedor'
-
     const totalOrdered = poItems.reduce((s, it) => s + ((it.quantity as number) || 0), 0)
     const totalReceived = poItems.reduce((s, it) => s + ((it.qty_received as number) || 0), 0)
     const receivedPct = totalOrdered > 0 ? Math.round((totalReceived / totalOrdered) * 100) : 0
-
     const docItems: DocumentItem[] = poItems.map((it, idx) => {
       const ordered = (it.quantity as number) || 0
       const received = (it.qty_received as number) || 0
       const isDone = received >= ordered
       return {
-        id: (it.id as string) || `pi-${idx}`,
-        sku: (it.sku as string) || '',
-        description: (it.description as string) || '',
-        quantity: ordered,
-        unit_price: (it.unit_cost as number) || 0,
-        subtotal: (it.line_total as number) || 0,
-        qty_delivered: received,
-        qty_invoiced: 0, qty_reserved: 0,
+        id: (it.id as string) || `pi-${idx}`, sku: (it.sku as string) || '',
+        description: (it.description as string) || '', quantity: ordered,
+        unit_price: (it.unit_cost as number) || 0, subtotal: (it.line_total as number) || 0,
+        qty_delivered: received, qty_invoiced: 0, qty_reserved: 0,
         status: isDone ? 'completed' : received > 0 ? 'partial' : 'pending',
         statusColor: isDone ? '#00C853' : received > 0 ? '#FFB300' : '#6B7280',
         statusLabel: isDone ? 'Recibido' : received > 0 ? 'Parcial' : 'Pendiente',
@@ -810,63 +1011,30 @@ function PedidosCompraTab() {
         requires_po: false, hasComponents: false,
       }
     })
-
     const alerts = st === 'sent' && selectedPO.created_at ? (() => {
       const daysSince = Math.floor((Date.now() - new Date(selectedPO.created_at as string).getTime()) / (1000 * 60 * 60 * 24))
-      if (daysSince > 14) return [{
-        id: 'overdue-alert', type: 'po_overdue', severity: 'warning' as const,
-        title: `OC enviada hace ${daysSince} dias sin confirmacion`,
-        description: `Verificar con ${supplierName} el estado del envio.`,
-        status: 'active',
-      }]
+      if (daysSince > 14) return [{ id: 'overdue-alert', type: 'po_overdue', severity: 'warning' as const, title: `OC enviada hace ${daysSince} dias sin confirmacion`, description: `Verificar con ${supplierName} el estado del envio.`, status: 'active' }]
       return []
     })() : []
-
     const actionButtons = (
       <div className="flex gap-2 mt-4">
-        {st === 'draft' && (
-          <Button variant="secondary" onClick={() => changeStatus(selectedPO.id as string, 'sent')}><Send size={14} /> Marcar Enviada</Button>
-        )}
-        {(st === 'sent' || st === 'partial') && (
-          <Button variant="secondary" onClick={() => openReceive(selectedPO)}><Truck size={14} /> Registrar Recepcion</Button>
-        )}
-        {st === 'received' && (
-          <Button variant="secondary" onClick={() => changeStatus(selectedPO.id as string, 'closed')}><CheckCircle size={14} /> Cerrar OC</Button>
-        )}
+        {st === 'draft' && <Button variant="secondary" onClick={() => changeStatus(selectedPO.id as string, 'sent')}><Send size={14} /> Marcar Enviada</Button>}
+        {(st === 'sent' || st === 'partial') && <Button variant="secondary" onClick={() => openReceive(selectedPO)}><Truck size={14} /> Registrar Recepcion</Button>}
+        {st === 'received' && <Button variant="secondary" onClick={() => changeStatus(selectedPO.id as string, 'closed')}><CheckCircle size={14} /> Cerrar OC</Button>}
       </div>
     )
-
     return (
       <DocumentDetailLayout
         workflowSteps={buildPOWorkflow(selectedPO)}
-        document={{
-          id: selectedPO.id as string, type: 'pap',
-          system_code: `PAP-${(selectedPO.id as string).slice(0, 8).toUpperCase()}`,
-          display_ref: `Compra ${supplierName}`,
-          status: st, currency: 'EUR',
-          total: (selectedPO.total as number) || 0,
-          subtotal: (selectedPO.total as number) || 0,
-          tax_amount: 0,
-          created_at: (selectedPO.created_at as string) || new Date().toISOString(),
-        }}
+        document={{ id: selectedPO.id as string, type: 'pap', system_code: `PAP-${(selectedPO.id as string).slice(0, 8).toUpperCase()}`, display_ref: `Compra ${supplierName}`, status: st, currency: 'EUR', total: (selectedPO.total as number) || 0, subtotal: (selectedPO.total as number) || 0, tax_amount: 0, created_at: (selectedPO.created_at as string) || new Date().toISOString() }}
         alerts={alerts}
-        deliveryProgress={{
-          clientName: supplierName,
-          deliveredPct: receivedPct,
-          invoicedPct: 0, collectedPct: 0,
-          ocRef: supplierName,
-          itemStatuses: docItems.map((i) => ({ label: i.statusLabel, color: i.statusColor })),
-        }}
+        deliveryProgress={{ clientName: supplierName, deliveredPct: receivedPct, invoicedPct: 0, collectedPct: 0, ocRef: supplierName, itemStatuses: docItems.map((i) => ({ label: i.statusLabel, color: i.statusColor })) }}
         trackingSummary={[
           { label: 'Proveedor', value: supplierName, color: '#F0F2F5' },
           { label: 'Items', value: poItems.length, color: '#F0F2F5' },
           { label: 'Recibido', value: `${receivedPct}%`, color: receivedPct >= 100 ? '#00C853' : '#FFB300' },
         ]}
-        overallProgress={receivedPct}
-        notes={[]}
-        onAddNote={() => {}}
-        onBack={() => setSelectedPO(null)}
-        backLabel="Volver a pedidos de compra"
+        overallProgress={receivedPct} notes={[]} onAddNote={() => {}} onBack={() => setSelectedPO(null)} backLabel="Volver a pedidos de compra"
       >
         <DocumentItemsTree items={docItems} components={[]} showStock={false} />
         {actionButtons}
@@ -882,17 +1050,10 @@ function PedidosCompraTab() {
   return (
     <div className="space-y-4">
       <div className="flex justify-end gap-2">
-        <ExportButton
-          data={orders as Record<string, unknown>[]}
-          filename="ordenes_compra_torquetools"
-          columns={[
-            { key: 'supplier_name', label: 'Proveedor' },
-            { key: 'status', label: 'Estado' },
-            { key: 'total', label: 'Total' },
-            { key: 'notes', label: 'Notas' },
-            { key: 'created_at', label: 'Fecha' },
-          ]}
-        />
+        <ExportButton data={orders as Record<string, unknown>[]} filename="ordenes_compra_torquetools" columns={[
+          { key: 'supplier_name', label: 'Proveedor' }, { key: 'status', label: 'Estado' },
+          { key: 'total', label: 'Total' }, { key: 'notes', label: 'Notas' }, { key: 'created_at', label: 'Fecha' },
+        ]} />
         <Button onClick={() => { setShowCreate(true); loadProducts() }}><Plus size={16} /> Nueva OC</Button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -907,7 +1068,6 @@ function PedidosCompraTab() {
           <Select options={[{ value: '', label: 'Todos' }, ...Object.entries(PO_STATUS).map(([k, v]) => ({ value: k, label: v.label }))]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
         </div>
       </div>
-
       {loading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
       ) : orders.length === 0 ? (
@@ -917,21 +1077,16 @@ function PedidosCompraTab() {
           {orders.map((po) => {
             const st = (po.status as string) || 'draft'
             return (
-              <DocumentListCard
-                key={po.id as string} type="pap"
-                systemCode={`PAP-${(po.id as string).slice(0, 8).toUpperCase()}`}
+              <DocumentListCard key={po.id as string} type="pap" systemCode={`PAP-${(po.id as string).slice(0, 8).toUpperCase()}`}
                 clientName={(po.supplier_name as string) || 'Sin proveedor'}
                 date={po.created_at ? formatDate(po.created_at as string) : '-'}
-                total={(po.total as number) || 0} currency="EUR"
-                status={st} statusLabel={PO_STATUS[st]?.label || st}
+                total={(po.total as number) || 0} currency="EUR" status={st} statusLabel={PO_STATUS[st]?.label || st}
                 onClick={() => openDetail(po)}
               />
             )
           })}
         </div>
       )}
-
-      {/* CREATE MODAL */}
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="Nueva Orden de Compra" size="xl">
         <div className="space-y-4">
           <Input label="Proveedor" value={supplier} onChange={(e) => setSupplier(e.target.value)} placeholder="Nombre del proveedor" />
@@ -950,8 +1105,6 @@ function PedidosCompraTab() {
           <div className="flex justify-end gap-3 pt-4 border-t border-[#1E2330]"><Button variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</Button><Button onClick={handleCreate} loading={saving}>Crear OC</Button></div>
         </div>
       </Modal>
-
-      {/* RECEIVE MODAL */}
       <Modal isOpen={showReceive} onClose={() => setShowReceive(false)} title="Recepcion de Mercaderia" size="lg">
         <div className="space-y-4">
           <p className="text-sm text-[#6B7280]">Ingresa las cantidades recibidas para cada producto</p>
@@ -990,7 +1143,6 @@ function RecepcionesTab() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <KPICard label="Recepciones" value={receptions.length} icon={<Truck size={22} />} />
       </div>
-
       {loading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
       ) : receptions.length === 0 ? (
@@ -1000,8 +1152,7 @@ function RecepcionesTab() {
           {receptions.map((r) => {
             const st = (r.status as string) || 'partial'
             return (
-              <DocumentListCard
-                key={r.id as string} type="recepcion"
+              <DocumentListCard key={r.id as string} type="recepcion"
                 systemCode={`REC-${(r.id as string).slice(0, 8).toUpperCase()}`}
                 clientName={(r.supplier_name as string) || 'Sin proveedor'}
                 date={r.updated_at ? formatDate(r.updated_at as string) : '-'}
@@ -1018,69 +1169,701 @@ function RecepcionesTab() {
 }
 
 // ===============================================================
-// FACTURAS COMPRA TAB
+// FACTURAS COMPRA TAB (ENHANCED)
 // ===============================================================
 function FacturasCompraTab() {
   const supabase = createClient()
-  const [invoices, setInvoices] = useState<Row[]>([])
+  const { addToast } = useToast()
+  const [invoices, setInvoices] = useState<PurchaseInvoice[]>([])
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [purchaseOrders, setPurchaseOrders] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [showCreate, setShowCreate] = useState(false)
+  const [showPayment, setShowPayment] = useState(false)
+  const [selectedInvoice, setSelectedInvoice] = useState<PurchaseInvoice | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [newInv, setNewInv] = useState({ supplier_id: '', purchase_order_id: '', supplier_invoice_number: '', supplier_invoice_date: '', subtotal: 0, tax_rate: 21, due_date: '', notes: '' })
+  const [newPay, setNewPay] = useState({ amount: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: 'transferencia', bank_reference: '', bank_account: '', notes: '' })
+  const [invoicePayments, setInvoicePayments] = useState<PurchasePayment[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
-    let q = supabase.from('tt_invoices').select('*').eq('type', 'purchase').order('created_at', { ascending: false })
-    if (search) q = q.ilike('doc_number', `%${search}%`)
-    const { data } = await q
-    setInvoices(data || [])
+    const { data } = await supabase
+      .from('tt_purchase_invoices')
+      .select('*, supplier:tt_suppliers(id, name, legal_name)')
+      .order('created_at', { ascending: false })
+    setInvoices((data || []) as PurchaseInvoice[])
     setLoading(false)
-  }, [supabase, search])
+  }, [supabase])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); checkPaymentAlerts() }, [load])
 
-  const totalAmount = invoices.reduce((s, i) => s + ((i.total as number) || 0), 0)
+  const loadSuppliers = async () => {
+    const { data } = await supabase.from('tt_suppliers').select('id, name, legal_name').eq('active', true).order('name')
+    setSuppliers((data || []) as Supplier[])
+  }
+
+  const loadPOs = async () => {
+    const { data } = await supabase.from('tt_purchase_orders').select('id, supplier_name, total, status').order('created_at', { ascending: false }).limit(50)
+    setPurchaseOrders(data || [])
+  }
+
+  const filtered = useMemo(() => {
+    let result = invoices
+    if (statusFilter) {
+      result = result.filter(inv => {
+        const ds = getInvoiceDisplayStatus(inv)
+        return ds === statusFilter
+      })
+    }
+    if (search.trim()) {
+      const tokens = search.trim().toLowerCase().split(/\s+/)
+      result = result.filter(inv => {
+        const sName = (inv.supplier as Supplier | undefined)?.name || ''
+        const searchable = [inv.number, sName, inv.supplier_invoice_number, inv.notes].filter(Boolean).join(' ').toLowerCase()
+        return tokens.every(t => searchable.includes(t))
+      })
+    }
+    return result
+  }, [invoices, search, statusFilter])
+
+  const totalPending = filtered.filter(i => i.status !== 'paid').reduce((s, i) => s + i.total, 0)
+  const dueThisWeek = filtered.filter(i => {
+    if (i.status === 'paid' || !i.due_date) return false
+    const due = new Date(i.due_date)
+    const now = new Date()
+    const in7 = new Date(Date.now() + 7 * 86400000)
+    return due >= now && due <= in7
+  }).length
+  const overdueAmount = filtered.filter(i => {
+    if (i.status === 'paid' || !i.due_date) return false
+    return new Date(i.due_date) < new Date()
+  }).reduce((s, i) => s + i.total, 0)
+
+  async function handleCreateInvoice() {
+    if (!newInv.supplier_id) { addToast({ type: 'error', title: 'Selecciona un proveedor' }); return }
+    setSaving(true)
+    const taxAmount = newInv.subtotal * newInv.tax_rate / 100
+    const total = newInv.subtotal + taxAmount
+    const { error } = await supabase.from('tt_purchase_invoices').insert({
+      number: generateInvoiceNumber(),
+      supplier_id: newInv.supplier_id,
+      purchase_order_id: newInv.purchase_order_id || null,
+      supplier_invoice_number: newInv.supplier_invoice_number || null,
+      supplier_invoice_date: newInv.supplier_invoice_date || null,
+      subtotal: newInv.subtotal,
+      tax_rate: newInv.tax_rate,
+      tax_amount: taxAmount,
+      total,
+      due_date: newInv.due_date || null,
+      notes: newInv.notes || null,
+      status: 'pending',
+    })
+    if (!error) {
+      addToast({ type: 'success', title: 'Factura registrada' })
+      setShowCreate(false)
+      setNewInv({ supplier_id: '', purchase_order_id: '', supplier_invoice_number: '', supplier_invoice_date: '', subtotal: 0, tax_rate: 21, due_date: '', notes: '' })
+      load()
+    } else { addToast({ type: 'error', title: 'Error', message: error.message }) }
+    setSaving(false)
+  }
+
+  async function openInvoiceDetail(inv: PurchaseInvoice) {
+    setSelectedInvoice(inv)
+    const { data } = await supabase
+      .from('tt_purchase_payments')
+      .select('*')
+      .eq('purchase_invoice_id', inv.id)
+      .order('payment_date', { ascending: false })
+    setInvoicePayments((data || []) as PurchasePayment[])
+  }
+
+  async function handleRegisterPayment() {
+    if (!selectedInvoice || newPay.amount <= 0) { addToast({ type: 'error', title: 'Monto invalido' }); return }
+    setSaving(true)
+    const { error } = await supabase.from('tt_purchase_payments').insert({
+      purchase_invoice_id: selectedInvoice.id,
+      supplier_id: selectedInvoice.supplier_id,
+      purchase_order_id: selectedInvoice.purchase_order_id,
+      amount: newPay.amount,
+      payment_date: newPay.payment_date,
+      payment_method: newPay.payment_method,
+      bank_reference: newPay.bank_reference || null,
+      bank_account: newPay.bank_account || null,
+      notes: newPay.notes || null,
+      is_advance: false,
+      status: 'completed',
+    })
+    if (error) { addToast({ type: 'error', title: 'Error', message: error.message }); setSaving(false); return }
+
+    // Update invoice status
+    const totalPaid = invoicePayments.reduce((s, p) => s + p.amount, 0) + newPay.amount
+    const newStatus = totalPaid >= selectedInvoice.total ? 'paid' : 'partial'
+    await supabase.from('tt_purchase_invoices').update({
+      status: newStatus,
+      paid_at: newStatus === 'paid' ? new Date().toISOString() : null,
+    }).eq('id', selectedInvoice.id)
+
+    // Resolve related alerts
+    if (newStatus === 'paid') {
+      await supabase.from('tt_alerts')
+        .update({ status: 'resolved' })
+        .eq('document_id', selectedInvoice.id)
+        .in('type', ['payment_due_soon', 'payment_overdue'])
+    }
+
+    addToast({ type: 'success', title: 'Pago registrado' })
+    setShowPayment(false)
+    setNewPay({ amount: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: 'transferencia', bank_reference: '', bank_account: '', notes: '' })
+    load()
+    openInvoiceDetail({ ...selectedInvoice, status: newStatus })
+    setSaving(false)
+  }
+
+  // Invoice detail view
+  if (selectedInvoice) {
+    const ds = getInvoiceDisplayStatus(selectedInvoice)
+    const totalPaid = invoicePayments.reduce((s, p) => s + p.amount, 0)
+    const remaining = selectedInvoice.total - totalPaid
+    const sName = (selectedInvoice.supplier as Supplier | undefined)?.name || 'Proveedor'
+
+    return (
+      <div className="space-y-4 animate-in fade-in">
+        <button onClick={() => setSelectedInvoice(null)} className="flex items-center gap-2 text-[#9CA3AF] hover:text-[#F0F2F5] transition-colors text-sm">
+          <ArrowLeft size={16} /> Volver a facturas
+        </button>
+
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-[#F0F2F5]">{selectedInvoice.number}</h2>
+            <p className="text-sm text-[#6B7280]">{sName} {selectedInvoice.supplier_invoice_number ? `| Factura proveedor: ${selectedInvoice.supplier_invoice_number}` : ''}</p>
+          </div>
+          <Badge variant={INVOICE_STATUS[ds]?.variant || 'default'} size="md">{INVOICE_STATUS[ds]?.label || ds}</Badge>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="p-4 rounded-xl bg-[#141820] border border-[#1E2330]">
+            <p className="text-xs text-[#6B7280]">Subtotal</p>
+            <p className="text-lg font-bold text-[#F0F2F5]">{formatCurrency(selectedInvoice.subtotal)}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-[#141820] border border-[#1E2330]">
+            <p className="text-xs text-[#6B7280]">IVA ({selectedInvoice.tax_rate}%)</p>
+            <p className="text-lg font-bold text-[#F0F2F5]">{formatCurrency(selectedInvoice.tax_amount)}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-[#141820] border border-[#1E2330]">
+            <p className="text-xs text-[#6B7280]">Total</p>
+            <p className="text-lg font-bold text-[#FF6600]">{formatCurrency(selectedInvoice.total)}</p>
+          </div>
+          <div className="p-4 rounded-xl bg-[#141820] border border-[#1E2330]">
+            <p className="text-xs text-[#6B7280]">Pendiente</p>
+            <p className={`text-lg font-bold ${remaining > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatCurrency(remaining)}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card>
+            <h3 className="text-sm font-semibold text-[#F0F2F5] mb-3">Datos de la factura</h3>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between"><span className="text-[#6B7280]">Fecha factura proveedor</span><span className="text-[#F0F2F5]">{selectedInvoice.supplier_invoice_date ? formatDate(selectedInvoice.supplier_invoice_date) : '-'}</span></div>
+              <div className="flex justify-between"><span className="text-[#6B7280]">Fecha vencimiento</span><span className="text-[#F0F2F5]" style={{ color: getDueDateColor(selectedInvoice.due_date) }}>{selectedInvoice.due_date ? formatDate(selectedInvoice.due_date) : '-'}</span></div>
+              <div className="flex justify-between"><span className="text-[#6B7280]">Moneda</span><span className="text-[#F0F2F5]">{selectedInvoice.currency}</span></div>
+              {selectedInvoice.notes && <div className="pt-2 border-t border-[#1E2330]"><span className="text-[#6B7280]">Notas: </span><span className="text-[#F0F2F5]">{selectedInvoice.notes}</span></div>}
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-[#F0F2F5]">Pagos realizados</h3>
+              {remaining > 0 && <Button variant="primary" size="sm" onClick={() => { setNewPay({ ...newPay, amount: remaining }); setShowPayment(true) }}><CreditCard size={14} /> Registrar pago</Button>}
+            </div>
+            {invoicePayments.length === 0 ? (
+              <p className="text-xs text-[#4B5563] py-4 text-center">Sin pagos registrados</p>
+            ) : (
+              <div className="space-y-2">
+                {invoicePayments.map(pay => (
+                  <div key={pay.id} className="flex items-center justify-between p-2 rounded-lg bg-[#0F1218]">
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-400">{formatCurrency(pay.amount)}</p>
+                      <p className="text-xs text-[#6B7280]">{formatDate(pay.payment_date)} | {pay.payment_method}</p>
+                      {pay.bank_reference && <p className="text-xs text-[#4B5563]">Ref: {pay.bank_reference}</p>}
+                    </div>
+                    <Badge variant="success" size="sm">Pagado</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Payment modal */}
+        <Modal isOpen={showPayment} onClose={() => setShowPayment(false)} title="Registrar pago" size="md">
+          <div className="space-y-4">
+            <Input label="Monto *" type="number" value={newPay.amount} onChange={(e) => setNewPay({ ...newPay, amount: Number(e.target.value) })} />
+            <Input label="Fecha de pago *" type="date" value={newPay.payment_date} onChange={(e) => setNewPay({ ...newPay, payment_date: e.target.value })} />
+            <Select label="Metodo de pago" value={newPay.payment_method} onChange={(e) => setNewPay({ ...newPay, payment_method: e.target.value })} options={[
+              { value: 'transferencia', label: 'Transferencia bancaria' }, { value: 'cheque', label: 'Cheque' },
+              { value: 'efectivo', label: 'Efectivo' }, { value: 'tarjeta', label: 'Tarjeta' },
+              { value: 'paypal', label: 'PayPal' }, { value: 'otro', label: 'Otro' },
+            ]} />
+            <Input label="Referencia bancaria" value={newPay.bank_reference} onChange={(e) => setNewPay({ ...newPay, bank_reference: e.target.value })} placeholder="Nro transferencia, cheque..." />
+            <Input label="Cuenta bancaria" value={newPay.bank_account} onChange={(e) => setNewPay({ ...newPay, bank_account: e.target.value })} />
+            <Input label="Notas" value={newPay.notes} onChange={(e) => setNewPay({ ...newPay, notes: e.target.value })} />
+            <div className="flex justify-end gap-3 pt-4 border-t border-[#1E2330]">
+              <Button variant="secondary" onClick={() => setShowPayment(false)}>Cancelar</Button>
+              <Button onClick={handleRegisterPayment} loading={saving}><CreditCard size={14} /> Registrar pago</Button>
+            </div>
+          </div>
+        </Modal>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <KPICard label="Facturas de compra" value={invoices.length} icon={<FileCheck size={22} />} />
-        <KPICard label="Monto total" value={formatCurrency(totalAmount)} icon={<DollarSign size={22} />} color="#EF4444" />
+      <div className="flex justify-end gap-2">
+        <ExportButton data={filtered as unknown as Record<string, unknown>[]} filename="facturas_compra" columns={[
+          { key: 'number', label: 'Numero' }, { key: 'supplier_invoice_number', label: 'Factura Proveedor' },
+          { key: 'total', label: 'Total' }, { key: 'due_date', label: 'Vencimiento' }, { key: 'status', label: 'Estado' },
+        ]} />
+        <Button variant="primary" onClick={() => { setShowCreate(true); loadSuppliers(); loadPOs() }}><Plus size={16} /> Registrar factura</Button>
       </div>
-      <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-3 flex gap-3 items-center">
-        <SearchBar placeholder="Buscar factura de compra..." value={search} onChange={setSearch} className="flex-1" />
-        <ExportButton
-          data={invoices as Record<string, unknown>[]}
-          filename="facturas_compra_torquetools"
-          columns={[
-            { key: 'doc_number', label: 'Numero' },
-            { key: 'status', label: 'Estado' },
-            { key: 'total', label: 'Total' },
-            { key: 'created_at', label: 'Fecha' },
-          ]}
-        />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard label="Facturas" value={filtered.length} icon={<FileCheck size={22} />} />
+        <KPICard label="Total pendiente" value={formatCurrency(totalPending)} icon={<DollarSign size={22} />} color="#F59E0B" />
+        <KPICard label="Vencen esta semana" value={dueThisWeek} icon={<CalendarClock size={22} />} color="#F97316" />
+        <KPICard label="Monto vencido" value={formatCurrency(overdueAmount)} icon={<AlertTriangle size={22} />} color="#EF4444" />
+      </div>
+
+      <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-3 flex flex-col sm:flex-row gap-3">
+        <SearchBar placeholder="Buscar factura, proveedor..." value={search} onChange={setSearch} className="flex-1" />
+        <Select options={[{ value: '', label: 'Todos' }, { value: 'pending', label: 'Pendientes' }, { value: 'due_soon', label: 'Vencen pronto' }, { value: 'overdue', label: 'Vencidas' }, { value: 'paid', label: 'Pagadas' }, { value: 'partial', label: 'Pago parcial' }]} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} />
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
-      ) : invoices.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="text-center py-20 text-[#6B7280]"><FileCheck size={48} className="mx-auto mb-3 opacity-30" /><p>No hay facturas de compra</p></div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {invoices.map((inv) => {
-            const st = (inv.status as string) || 'pending'
+          {filtered.map((inv) => {
+            const ds = getInvoiceDisplayStatus(inv)
+            const sName = (inv.supplier as Supplier | undefined)?.name || 'Proveedor'
             return (
-              <DocumentListCard
-                key={inv.id as string} type="factura_compra"
-                systemCode={(inv.doc_number as string) || '-'}
-                clientName="Factura proveedor"
-                date={inv.created_at ? formatDate(inv.created_at as string) : '-'}
-                total={(inv.total as number) || 0} currency="EUR"
-                status={st} statusLabel={st === 'paid' ? 'Pagada' : st}
-                onClick={() => {}}
-              />
+              <Card key={inv.id} hover onClick={() => openInvoiceDetail(inv)}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-bold text-[#F0F2F5]">{inv.number}</p>
+                    <p className="text-xs text-[#6B7280]">{sName}</p>
+                  </div>
+                  <Badge variant={INVOICE_STATUS[ds]?.variant || 'default'} size="sm">{INVOICE_STATUS[ds]?.label || ds}</Badge>
+                </div>
+                {inv.supplier_invoice_number && <p className="text-xs text-[#4B5563] mb-2">Factura prov: {inv.supplier_invoice_number}</p>}
+                <div className="flex items-center justify-between pt-2 border-t border-[#1E2330]">
+                  <span className="text-lg font-bold text-[#FF6600]">{formatCurrency(inv.total)}</span>
+                  {inv.due_date && (
+                    <span className="text-xs" style={{ color: getDueDateColor(inv.due_date) }}>
+                      Vence: {formatDate(inv.due_date)}
+                    </span>
+                  )}
+                </div>
+              </Card>
             )
           })}
         </div>
       )}
+
+      {/* Create invoice modal */}
+      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="Registrar factura de compra" size="xl">
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Proveedor *" value={newInv.supplier_id} onChange={(e) => setNewInv({ ...newInv, supplier_id: e.target.value })} options={[{ value: '', label: 'Seleccionar...' }, ...suppliers.map(s => ({ value: s.id, label: s.legal_name || s.name }))]} />
+            <Select label="OC vinculada" value={newInv.purchase_order_id} onChange={(e) => setNewInv({ ...newInv, purchase_order_id: e.target.value })} options={[{ value: '', label: 'Ninguna' }, ...purchaseOrders.map(po => ({ value: po.id as string, label: `${(po.supplier_name as string)} - ${formatCurrency((po.total as number) || 0)}` }))]} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="N de factura del proveedor" value={newInv.supplier_invoice_number} onChange={(e) => setNewInv({ ...newInv, supplier_invoice_number: e.target.value })} placeholder="Ej: FA-2024-001" />
+            <Input label="Fecha factura proveedor" type="date" value={newInv.supplier_invoice_date} onChange={(e) => setNewInv({ ...newInv, supplier_invoice_date: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            <Input label="Subtotal (sin IVA) *" type="number" value={newInv.subtotal} onChange={(e) => setNewInv({ ...newInv, subtotal: Number(e.target.value) })} />
+            <Input label="IVA %" type="number" value={newInv.tax_rate} onChange={(e) => setNewInv({ ...newInv, tax_rate: Number(e.target.value) })} />
+            <div className="p-3 rounded-lg bg-[#0F1218] border border-[#1E2330]">
+              <p className="text-xs text-[#6B7280] mb-1">Total</p>
+              <p className="text-lg font-bold text-[#FF6600]">{formatCurrency(newInv.subtotal + (newInv.subtotal * newInv.tax_rate / 100))}</p>
+            </div>
+          </div>
+          <Input label="Fecha de vencimiento" type="date" value={newInv.due_date} onChange={(e) => setNewInv({ ...newInv, due_date: e.target.value })} />
+          <Input label="Notas" value={newInv.notes} onChange={(e) => setNewInv({ ...newInv, notes: e.target.value })} />
+          <div className="flex justify-end gap-3 pt-4 border-t border-[#1E2330]">
+            <Button variant="secondary" onClick={() => setShowCreate(false)}>Cancelar</Button>
+            <Button onClick={handleCreateInvoice} loading={saving}><FileCheck size={14} /> Registrar factura</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+// ===============================================================
+// PAGOS TAB (NEW)
+// ===============================================================
+function PagosTab() {
+  const supabase = createClient()
+  const { addToast } = useToast()
+  const [payments, setPayments] = useState<PurchasePayment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'all' | 'normal' | 'advance'>('all')
+  const [showAdvance, setShowAdvance] = useState(false)
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [saving, setSaving] = useState(false)
+  const [newAdv, setNewAdv] = useState({ supplier_id: '', amount: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: 'transferencia', bank_reference: '', advance_reason: '', expected_goods_date: '', notes: '' })
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const { data } = await supabase
+      .from('tt_purchase_payments')
+      .select('*, supplier:tt_suppliers(id, name, legal_name)')
+      .order('payment_date', { ascending: false })
+    setPayments((data || []) as PurchasePayment[])
+    setLoading(false)
+  }, [supabase])
+
+  useEffect(() => { load() }, [load])
+
+  const filtered = useMemo(() => {
+    if (filter === 'normal') return payments.filter(p => !p.is_advance)
+    if (filter === 'advance') return payments.filter(p => p.is_advance)
+    return payments
+  }, [payments, filter])
+
+  const totalPaidMonth = useMemo(() => {
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]
+    return payments.filter(p => p.payment_date >= monthStart).reduce((s, p) => s + p.amount, 0)
+  }, [payments])
+
+  const advancesPending = payments.filter(p => p.is_advance && !p.goods_received)
+  const paymentsThisWeek = useMemo(() => {
+    const now = new Date()
+    const weekStart = new Date(now)
+    weekStart.setDate(now.getDate() - now.getDay())
+    const ws = weekStart.toISOString().split('T')[0]
+    return payments.filter(p => p.payment_date >= ws).length
+  }, [payments])
+
+  async function handleCreateAdvance() {
+    if (!newAdv.supplier_id || newAdv.amount <= 0) { addToast({ type: 'error', title: 'Completa los datos obligatorios' }); return }
+    setSaving(true)
+    const reminderDate = newAdv.expected_goods_date || null
+    const { error } = await supabase.from('tt_purchase_payments').insert({
+      supplier_id: newAdv.supplier_id,
+      amount: newAdv.amount,
+      payment_date: newAdv.payment_date,
+      payment_method: newAdv.payment_method,
+      bank_reference: newAdv.bank_reference || null,
+      advance_reason: newAdv.advance_reason || null,
+      expected_goods_date: newAdv.expected_goods_date || null,
+      reminder_date: reminderDate,
+      is_advance: true,
+      goods_received: false,
+      status: 'completed',
+      notes: newAdv.notes || null,
+    })
+    if (!error) {
+      addToast({ type: 'success', title: 'Anticipo registrado' })
+      setShowAdvance(false)
+      setNewAdv({ supplier_id: '', amount: 0, payment_date: new Date().toISOString().split('T')[0], payment_method: 'transferencia', bank_reference: '', advance_reason: '', expected_goods_date: '', notes: '' })
+      load()
+    } else { addToast({ type: 'error', title: 'Error', message: error.message }) }
+    setSaving(false)
+  }
+
+  async function markGoodsReceived(paymentId: string) {
+    await supabase.from('tt_purchase_payments').update({
+      goods_received: true,
+      goods_received_date: new Date().toISOString().split('T')[0],
+    }).eq('id', paymentId)
+    // Resolve related alerts
+    await supabase.from('tt_alerts').update({ status: 'resolved' }).eq('document_id', paymentId).eq('type', 'advance_goods_pending')
+    addToast({ type: 'success', title: 'Mercaderia recibida marcada' })
+    load()
+  }
+
+  const loadSuppliers = async () => {
+    const { data } = await supabase.from('tt_suppliers').select('id, name, legal_name').eq('active', true).order('name')
+    setSuppliers((data || []) as Supplier[])
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" onClick={() => { setShowAdvance(true); loadSuppliers() }}><Banknote size={16} /> Registrar anticipo</Button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard label="Pagado este mes" value={formatCurrency(totalPaidMonth)} icon={<CircleDollarSign size={22} />} color="#10B981" />
+        <KPICard label="Anticipos pendientes" value={advancesPending.length} icon={<Banknote size={22} />} color="#3B82F6" />
+        <KPICard label="Pagos esta semana" value={paymentsThisWeek} icon={<CreditCard size={22} />} />
+        <KPICard label="Total pagos" value={filtered.length} icon={<Receipt size={22} />} color="#6B7280" />
+      </div>
+
+      <div className="flex gap-2">
+        {(['all', 'normal', 'advance'] as const).map(f => (
+          <button key={f} onClick={() => setFilter(f)} className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${filter === f ? 'bg-[#FF6600] text-white' : 'bg-[#1E2330] text-[#9CA3AF] hover:bg-[#2A3040]'}`}>
+            {f === 'all' ? 'Todos' : f === 'normal' ? 'Normales' : 'Anticipos'}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-20 text-[#6B7280]"><CreditCard size={48} className="mx-auto mb-3 opacity-30" /><p>No hay pagos registrados</p></div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map((pay) => {
+            const sName = (pay.supplier as Supplier | undefined)?.name || 'Proveedor'
+            return (
+              <Card key={pay.id}>
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-bold text-[#F0F2F5]">{sName}</p>
+                    <p className="text-xs text-[#6B7280]">{formatDate(pay.payment_date)} | {pay.payment_method || '-'}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {pay.is_advance && <Badge variant="info" size="sm">ANTICIPO</Badge>}
+                    <Badge variant="success" size="sm">{pay.status}</Badge>
+                  </div>
+                </div>
+                <p className="text-xl font-bold text-emerald-400 mb-2">{formatCurrency(pay.amount)}</p>
+                {pay.bank_reference && <p className="text-xs text-[#4B5563] mb-1">Ref: {pay.bank_reference}</p>}
+                {pay.is_advance && (
+                  <div className="pt-2 border-t border-[#1E2330] mt-2">
+                    {pay.advance_reason && <p className="text-xs text-[#9CA3AF] mb-1">Motivo: {pay.advance_reason}</p>}
+                    {pay.expected_goods_date && (
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-[#6B7280]">
+                          Mercaderia esperada: <span style={{ color: getDueDateColor(pay.expected_goods_date) }}>{formatDate(pay.expected_goods_date)}</span>
+                        </p>
+                        {pay.goods_received ? (
+                          <Badge variant="success" size="sm">Recibida</Badge>
+                        ) : (
+                          <Button variant="secondary" size="sm" onClick={() => markGoodsReceived(pay.id)}>
+                            <CheckCircle size={12} /> Recibida
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {pay.goods_received && pay.goods_received_date && (
+                      <p className="text-xs text-emerald-400 mt-1">Recibida el {formatDate(pay.goods_received_date)}</p>
+                    )}
+                  </div>
+                )}
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Advance payment modal */}
+      <Modal isOpen={showAdvance} onClose={() => setShowAdvance(false)} title="Registrar anticipo a proveedor" size="lg">
+        <div className="space-y-4">
+          <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400">
+            Los anticipos son pagos realizados antes de recibir la mercaderia. Se genera un recordatorio automatico para la fecha de recepcion esperada.
+          </div>
+          <Select label="Proveedor *" value={newAdv.supplier_id} onChange={(e) => setNewAdv({ ...newAdv, supplier_id: e.target.value })} options={[{ value: '', label: 'Seleccionar...' }, ...suppliers.map(s => ({ value: s.id, label: s.legal_name || s.name }))]} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Monto *" type="number" value={newAdv.amount} onChange={(e) => setNewAdv({ ...newAdv, amount: Number(e.target.value) })} />
+            <Input label="Fecha de pago *" type="date" value={newAdv.payment_date} onChange={(e) => setNewAdv({ ...newAdv, payment_date: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Metodo de pago" value={newAdv.payment_method} onChange={(e) => setNewAdv({ ...newAdv, payment_method: e.target.value })} options={[
+              { value: 'transferencia', label: 'Transferencia' }, { value: 'cheque', label: 'Cheque' },
+              { value: 'efectivo', label: 'Efectivo' }, { value: 'tarjeta', label: 'Tarjeta' },
+            ]} />
+            <Input label="Referencia bancaria" value={newAdv.bank_reference} onChange={(e) => setNewAdv({ ...newAdv, bank_reference: e.target.value })} />
+          </div>
+          <Input label="Motivo del anticipo" value={newAdv.advance_reason} onChange={(e) => setNewAdv({ ...newAdv, advance_reason: e.target.value })} placeholder="Por que se paga por adelantado..." />
+          <Input label="Fecha esperada de recepcion de mercaderia" type="date" value={newAdv.expected_goods_date} onChange={(e) => setNewAdv({ ...newAdv, expected_goods_date: e.target.value })} />
+          <Input label="Notas" value={newAdv.notes} onChange={(e) => setNewAdv({ ...newAdv, notes: e.target.value })} />
+          <div className="flex justify-end gap-3 pt-4 border-t border-[#1E2330]">
+            <Button variant="secondary" onClick={() => setShowAdvance(false)}>Cancelar</Button>
+            <Button onClick={handleCreateAdvance} loading={saving}><Banknote size={14} /> Registrar anticipo</Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+// ===============================================================
+// CALENDARIO DE PAGOS TAB (NEW)
+// ===============================================================
+function CalendarioPagosTab() {
+  const supabase = createClient()
+  const [invoices, setInvoices] = useState<PurchaseInvoice[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true)
+      const { data } = await supabase
+        .from('tt_purchase_invoices')
+        .select('*, supplier:tt_suppliers(id, name, legal_name)')
+        .not('due_date', 'is', null)
+        .order('due_date', { ascending: true })
+      setInvoices((data || []) as PurchaseInvoice[])
+      setLoading(false)
+    })()
+  }, [])
+
+  // Build calendar data for next 30 days
+  const calendarData = useMemo(() => {
+    const days: Array<{ date: string; label: string; dayNum: number; weekday: string; invoices: PurchaseInvoice[]; isToday: boolean; isWeekend: boolean }> = []
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    for (let i = 0; i < 30; i++) {
+      const d = new Date(today)
+      d.setDate(today.getDate() + i)
+      const dateStr = d.toISOString().split('T')[0]
+      const dayInvs = invoices.filter(inv => inv.due_date === dateStr)
+      const weekday = d.toLocaleDateString('es-ES', { weekday: 'short' })
+      days.push({
+        date: dateStr,
+        label: d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }),
+        dayNum: d.getDate(),
+        weekday,
+        invoices: dayInvs,
+        isToday: i === 0,
+        isWeekend: d.getDay() === 0 || d.getDay() === 6,
+      })
+    }
+    return days
+  }, [invoices])
+
+  const totalDueThisWeek = useMemo(() => {
+    const now = new Date()
+    const weekEnd = new Date(now)
+    weekEnd.setDate(now.getDate() + 7)
+    const ws = now.toISOString().split('T')[0]
+    const we = weekEnd.toISOString().split('T')[0]
+    return invoices.filter(i => i.status !== 'paid' && i.due_date && i.due_date >= ws && i.due_date <= we).reduce((s, i) => s + i.total, 0)
+  }, [invoices])
+
+  const totalDueNextWeek = useMemo(() => {
+    const now = new Date()
+    const weekStart = new Date(now)
+    weekStart.setDate(now.getDate() + 7)
+    const weekEnd = new Date(now)
+    weekEnd.setDate(now.getDate() + 14)
+    const ws = weekStart.toISOString().split('T')[0]
+    const we = weekEnd.toISOString().split('T')[0]
+    return invoices.filter(i => i.status !== 'paid' && i.due_date && i.due_date >= ws && i.due_date <= we).reduce((s, i) => s + i.total, 0)
+  }, [invoices])
+
+  const totalDueMonth = invoices.filter(i => i.status !== 'paid').reduce((s, i) => s + i.total, 0)
+
+  const selectedDayInvoices = selectedDay ? calendarData.find(d => d.date === selectedDay)?.invoices || [] : []
+
+  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KPICard label="Vence esta semana" value={formatCurrency(totalDueThisWeek)} icon={<CalendarDays size={22} />} color="#F97316" />
+        <KPICard label="Vence proxima semana" value={formatCurrency(totalDueNextWeek)} icon={<CalendarClock size={22} />} color="#EAB308" />
+        <KPICard label="Total pendiente (30d)" value={formatCurrency(totalDueMonth)} icon={<DollarSign size={22} />} color="#EF4444" />
+      </div>
+
+      {/* Calendar grid */}
+      <div className="grid grid-cols-7 gap-1">
+        {/* Header */}
+        {['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'].map(d => (
+          <div key={d} className="text-center text-xs font-medium text-[#6B7280] py-2">{d}</div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-5 sm:grid-cols-6 lg:grid-cols-10 gap-2">
+        {calendarData.map(day => {
+          const hasInvoices = day.invoices.length > 0
+          const hasPaid = day.invoices.some(i => i.status === 'paid')
+          const hasOverdue = day.invoices.some(i => i.status !== 'paid' && new Date(i.due_date!) < new Date())
+          const hasPending = day.invoices.some(i => i.status !== 'paid')
+          const totalDayAmount = day.invoices.filter(i => i.status !== 'paid').reduce((s, i) => s + i.total, 0)
+
+          let borderColor = 'border-[#1E2330]'
+          let bgColor = 'bg-[#141820]'
+          if (hasOverdue) { borderColor = 'border-red-500/40'; bgColor = 'bg-red-500/5' }
+          else if (hasPending) { borderColor = 'border-amber-500/40'; bgColor = 'bg-amber-500/5' }
+          else if (hasPaid && hasInvoices) { borderColor = 'border-emerald-500/40'; bgColor = 'bg-emerald-500/5' }
+
+          return (
+            <button
+              key={day.date}
+              onClick={() => setSelectedDay(selectedDay === day.date ? null : day.date)}
+              className={`p-2 rounded-lg border ${borderColor} ${bgColor} transition-all hover:border-[#FF6600]/50 ${selectedDay === day.date ? 'ring-2 ring-[#FF6600]/50' : ''} ${day.isToday ? 'ring-1 ring-blue-500/50' : ''}`}
+            >
+              <div className="text-center">
+                <p className="text-[10px] text-[#6B7280] uppercase">{day.weekday}</p>
+                <p className={`text-sm font-bold ${day.isToday ? 'text-blue-400' : 'text-[#F0F2F5]'}`}>{day.dayNum}</p>
+                {hasInvoices && (
+                  <>
+                    <div className="flex justify-center gap-0.5 mt-1">
+                      {day.invoices.slice(0, 3).map((inv, idx) => (
+                        <div key={idx} className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: inv.status === 'paid' ? '#22C55E' : getDueDateColor(inv.due_date) }} />
+                      ))}
+                    </div>
+                    {totalDayAmount > 0 && <p className="text-[9px] font-mono text-amber-400 mt-0.5">{formatCurrency(totalDayAmount)}</p>}
+                  </>
+                )}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Selected day detail */}
+      {selectedDay && (
+        <Card>
+          <h3 className="text-sm font-semibold text-[#F0F2F5] mb-3">
+            Facturas del {formatDate(selectedDay, 'dd MMMM yyyy')}
+          </h3>
+          {selectedDayInvoices.length === 0 ? (
+            <p className="text-xs text-[#4B5563] py-4 text-center">No hay facturas con vencimiento este dia</p>
+          ) : (
+            <div className="space-y-2">
+              {selectedDayInvoices.map(inv => {
+                const ds = getInvoiceDisplayStatus(inv)
+                const sName = (inv.supplier as Supplier | undefined)?.name || 'Proveedor'
+                return (
+                  <div key={inv.id} className="flex items-center justify-between p-3 rounded-lg bg-[#0F1218]">
+                    <div>
+                      <p className="text-sm font-semibold text-[#F0F2F5]">{inv.number}</p>
+                      <p className="text-xs text-[#6B7280]">{sName}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-[#FF6600]">{formatCurrency(inv.total)}</p>
+                      <Badge variant={INVOICE_STATUS[ds]?.variant || 'default'} size="sm">{INVOICE_STATUS[ds]?.label || ds}</Badge>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-4 text-xs text-[#6B7280]">
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-emerald-500" /> Pagada</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-amber-500" /> Pendiente</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-full bg-red-500" /> Vencida</div>
+        <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded border border-blue-500" /> Hoy</div>
+      </div>
     </div>
   )
 }
@@ -1093,7 +1876,7 @@ export default function ComprasPage() {
     <div className="space-y-6 animate-fade-in">
       <div>
         <h1 className="text-2xl font-bold text-[#F0F2F5]">Compras</h1>
-        <p className="text-sm text-[#6B7280] mt-1">Proveedores, ordenes de compra, recepciones y facturas</p>
+        <p className="text-sm text-[#6B7280] mt-1">Proveedores, ordenes de compra, recepciones, facturas y pagos</p>
       </div>
       <Suspense fallback={<div className="flex justify-center py-10"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>}>
         <Tabs tabs={comprasTabs} defaultTab="proveedores">
@@ -1103,6 +1886,8 @@ export default function ComprasPage() {
               {activeTab === 'pedidos' && <PedidosCompraTab />}
               {activeTab === 'recepciones' && <RecepcionesTab />}
               {activeTab === 'facturas' && <FacturasCompraTab />}
+              {activeTab === 'pagos' && <PagosTab />}
+              {activeTab === 'calendario' && <CalendarioPagosTab />}
             </>
           )}
         </Tabs>

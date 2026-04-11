@@ -25,6 +25,7 @@ import { KpiPendingDelivery } from './widgets/kpi-pending-delivery'
 import { KpiPendingInvoices } from './widgets/kpi-pending-invoices'
 import { KpiPendingCollection } from './widgets/kpi-pending-collection'
 import { KpiStockAlerts } from './widgets/kpi-stock-alerts'
+import { KpiPendingPayments } from './widgets/kpi-pending-payments'
 import { WidgetRecentActivity } from './widgets/widget-recent-activity'
 import { WidgetRecentQuotes } from './widgets/widget-recent-quotes'
 import { WidgetQuickActions } from './widgets/widget-quick-actions'
@@ -46,6 +47,7 @@ const WIDGET_COMPONENTS: Record<string, React.ComponentType> = {
   'kpi-pending-invoices': KpiPendingInvoices,
   'kpi-pending-collection': KpiPendingCollection,
   'kpi-stock-alerts': KpiStockAlerts,
+  'kpi-pending-payments': KpiPendingPayments,
   'widget-recent-activity': WidgetRecentActivity,
   'widget-recent-quotes': WidgetRecentQuotes,
   'widget-quick-actions': WidgetQuickActions,

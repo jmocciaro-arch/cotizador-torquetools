@@ -409,6 +409,56 @@ export interface MailFollowup {
   updated_at: string
 }
 
+export interface PurchaseInvoice {
+  id: string
+  number: string
+  supplier_id: string | null
+  purchase_order_id: string | null
+  supplier_invoice_number: string | null
+  supplier_invoice_date: string | null
+  status: string
+  currency: string
+  subtotal: number
+  tax_rate: number
+  tax_amount: number
+  total: number
+  due_date: string | null
+  paid_at: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  // Joined
+  supplier?: Supplier
+  purchase_order?: PurchaseOrder
+}
+
+export interface PurchasePayment {
+  id: string
+  purchase_invoice_id: string | null
+  purchase_order_id: string | null
+  supplier_id: string | null
+  amount: number
+  currency: string
+  payment_date: string
+  payment_method: string | null
+  bank_reference: string | null
+  bank_account: string | null
+  is_advance: boolean
+  advance_reason: string | null
+  expected_goods_date: string | null
+  goods_received: boolean
+  goods_received_date: string | null
+  reminder_date: string | null
+  reminder_sent: boolean
+  status: string
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  // Joined
+  supplier?: Supplier
+  purchase_invoice?: PurchaseInvoice
+}
+
 export interface SystemParam {
   key: string
   value: string | null

@@ -104,6 +104,17 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     minW: 2,
     minH: 1,
   },
+  {
+    id: 'kpi-pending-payments',
+    name: 'Pagos Pendientes',
+    description: 'Facturas de compra pendientes de pago',
+    category: 'kpis',
+    icon: 'CreditCard',
+    defaultW: 2,
+    defaultH: 1,
+    minW: 2,
+    minH: 1,
+  },
   // Listas
   {
     id: 'widget-recent-activity',
