@@ -29,7 +29,7 @@ import {
   Hash, ArrowLeft, Edit3, Save, Trash2, Star, ChevronRight,
   Contact, CreditCard, CalendarDays, AlertTriangle, Banknote,
   Receipt, ArrowUpRight, CalendarClock, CircleDollarSign,
-  Layers, ArrowRightLeft
+  Layers, ArrowRightLeft, Grid3X3, List
 } from 'lucide-react'
 
 type Row = Record<string, unknown>
@@ -801,6 +801,8 @@ function ProveedoresTab() {
   const [showNew, setShowNew] = useState(false)
   const [newSupplier, setNewSupplier] = useState({ name: '', legal_name: '', tax_id: '', category: '', country: 'ES', city: '', email: '', phone: '', address: '', payment_terms: '', notes: '' })
   const [savingNew, setSavingNew] = useState(false)
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
+  const [supplierMetrics, setSupplierMetrics] = useState<Record<string, { total_purchased: number; pending_invoices: number; last_purchase: string | null }>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -816,6 +818,31 @@ function ProveedoresTab() {
 
   useEffect(() => { load() }, [load])
 
+  // Load supplier metrics
+  const loadSupplierMetrics = useCallback(async () => {
+    const sb = createClient()
+    const [{ data: poData }, { data: invData }] = await Promise.all([
+      sb.from('tt_purchase_orders').select('supplier_id, total, created_at').not('supplier_id', 'is', null),
+      sb.from('tt_purchase_invoices').select('supplier_id, total, paid_amount, status').not('supplier_id', 'is', null),
+    ])
+    const map: Record<string, { total_purchased: number; pending_invoices: number; last_purchase: string | null }> = {}
+    for (const po of (poData || [])) {
+      const sid = po.supplier_id as string
+      if (!map[sid]) map[sid] = { total_purchased: 0, pending_invoices: 0, last_purchase: null }
+      map[sid].total_purchased += (po.total as number) || 0
+      const ca = po.created_at as string
+      if (!map[sid].last_purchase || ca > map[sid].last_purchase!) map[sid].last_purchase = ca
+    }
+    for (const inv of (invData || [])) {
+      const sid = inv.supplier_id as string
+      if (!map[sid]) map[sid] = { total_purchased: 0, pending_invoices: 0, last_purchase: null }
+      if (inv.status !== 'paid') map[sid].pending_invoices += ((inv.total as number) || 0) - ((inv.paid_amount as number) || 0)
+    }
+    setSupplierMetrics(map)
+  }, [])
+
+  useEffect(() => { loadSupplierMetrics() }, [loadSupplierMetrics])
+
   const filtered = useMemo(() => {
     let result = suppliers
     if (filterCountry) result = result.filter(s => s.country === filterCountry)
@@ -829,6 +856,36 @@ function ProveedoresTab() {
     }
     return result
   }, [suppliers, search, filterCountry, filterCategory])
+
+  // Table rows with metrics
+  const supplierTableRows = useMemo(() => {
+    return filtered.map(s => {
+      const m = supplierMetrics[s.id]
+      return {
+        ...s,
+        _total_purchased: m?.total_purchased || 0,
+        _pending_invoices: m?.pending_invoices || 0,
+        _last_purchase: m?.last_purchase || null,
+        _country_display: `${countryFlags[s.country || ''] || ''} ${s.country || ''}`,
+      } as Record<string, unknown>
+    })
+  }, [filtered, supplierMetrics])
+
+  const supplierColumns: DataTableColumn[] = useMemo(() => [
+    { key: 'name', label: 'Nombre', sortable: true, searchable: true, type: 'text' },
+    { key: 'legal_name', label: 'Razon Social', sortable: true, searchable: true, type: 'text', defaultVisible: false },
+    { key: 'tax_id', label: 'CIF/CUIT', sortable: true, searchable: true, type: 'text' },
+    { key: 'email', label: 'Email', sortable: true, searchable: true, type: 'text' },
+    { key: 'phone', label: 'Telefono', sortable: false, type: 'text', defaultVisible: false },
+    { key: 'city', label: 'Ciudad', sortable: true, type: 'text', defaultVisible: false },
+    { key: '_country_display', label: 'Pais', sortable: true, type: 'text' },
+    { key: 'category', label: 'Categoria', sortable: true, searchable: true, type: 'text' },
+    { key: 'payment_terms', label: 'Cond. Pago', sortable: true, type: 'text' },
+    { key: '_total_purchased', label: 'Total Comprado', sortable: true, type: 'currency' },
+    { key: '_pending_invoices', label: 'Fact. Pendientes', sortable: true, type: 'currency' },
+    { key: '_last_purchase', label: 'Ultima Compra', sortable: true, type: 'date' },
+    { key: 'created_at', label: 'Creado', sortable: true, type: 'date', defaultVisible: false },
+  ], [])
 
   async function createNewSupplier() {
     if (!newSupplier.name.trim()) { addToast({ type: 'error', title: 'El nombre es obligatorio' }); return }
@@ -862,6 +919,15 @@ function ProveedoresTab() {
         <KPICard label="Con contactos" value={0} icon={<Contact size={22} />} />
       </div>
       <div className="flex justify-end gap-2">
+        {/* View mode toggle */}
+        <div className="flex rounded-lg border border-[#2A3040] overflow-hidden">
+          <button onClick={() => setViewMode('card')} className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-all ${viewMode === 'card' ? 'bg-[#FF6600] text-white' : 'bg-[#141820] text-[#6B7280] hover:text-[#F0F2F5]'}`}>
+            <Grid3X3 size={14} /> Tarjetas
+          </button>
+          <button onClick={() => setViewMode('table')} className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-all ${viewMode === 'table' ? 'bg-[#FF6600] text-white' : 'bg-[#141820] text-[#6B7280] hover:text-[#F0F2F5]'}`}>
+            <List size={14} /> Tabla
+          </button>
+        </div>
         <ExportButton data={filtered as unknown as Record<string, unknown>[]} filename="proveedores_torquetools" targetTable="tt_suppliers" columns={[
           { key: 'name', label: 'Nombre' }, { key: 'legal_name', label: 'Razon Social' }, { key: 'tax_id', label: 'CIF/NIF' },
           { key: 'email', label: 'Email' }, { key: 'phone', label: 'Telefono' }, { key: 'country', label: 'Pais' },
@@ -914,6 +980,21 @@ function ProveedoresTab() {
           <Building2 size={48} className="mb-4" /><p className="text-lg font-medium">No se encontraron proveedores</p>
           <p className="text-sm mt-1">Proba con otros filtros o terminos de busqueda</p>
         </div>
+      ) : viewMode === 'table' ? (
+        <DataTable
+          data={supplierTableRows}
+          columns={supplierColumns}
+          loading={loading}
+          pageSize={50}
+          showTotals
+          totalLabel="proveedores"
+          onRowClick={(row) => {
+            const sup = filtered.find(s => s.id === (row.id as string))
+            if (sup) setSelectedSupplier(sup)
+          }}
+          exportFilename="proveedores_torquetools"
+          exportTargetTable="tt_suppliers"
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((supplier) => (

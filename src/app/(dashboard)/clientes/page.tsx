@@ -17,11 +17,12 @@ import { formatCurrency, formatDate, formatRelative, getInitials } from '@/lib/u
 import type { Client, ClientContact, GroupedCompany, ActivityLog } from '@/types'
 import { ExportButton } from '@/components/ui/export-button'
 import { ImportButton } from '@/components/ui/import-button'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import {
   Users, Plus, Phone, Mail, MessageSquare, MapPin,
   Building2, FileText, Edit3, Save, X, Loader2, UserPlus, Contact,
   CreditCard, Truck, Clock, ChevronRight, Trash2, Star,
-  Globe, Hash, ArrowLeft, Search
+  Globe, Hash, ArrowLeft, Search, Grid3X3, List
 } from 'lucide-react'
 import { DocLink } from '@/components/ui/doc-link'
 
@@ -735,6 +736,8 @@ function ClientesTab() {
   const [newClient, setNewClient] = useState({ legal_name: '', tax_id: '', category: '' as string, country: 'ES', city: '', email: '', phone: '', address: '', contact_name: '', contact_position: '', contact_email: '', contact_phone: '' })
   const [savingNew, setSavingNew] = useState(false)
   const [displayCount, setDisplayCount] = useState(60)
+  const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
+  const [clientMetrics, setClientMetrics] = useState<Record<string, { total_invoiced: number; pending_collection: number; last_activity: string | null; doc_count: number }>>({})
 
   async function toggleFavorite(clientId: string, isFavorite: boolean) {
     const supabase = createClient()
@@ -778,6 +781,29 @@ function ClientesTab() {
 
   useEffect(() => { loadClients() }, [loadClients])
 
+  // Load client metrics (invoiced, pending, last activity)
+  const loadMetrics = useCallback(async () => {
+    const sb = createClient()
+    const { data } = await sb.from('tt_documents')
+      .select('client_id, type, status, total, created_at')
+      .not('client_id', 'is', null)
+    if (!data) return
+    const map: Record<string, { total_invoiced: number; pending_collection: number; last_activity: string | null; doc_count: number }> = {}
+    for (const doc of data) {
+      const cid = doc.client_id as string
+      if (!map[cid]) map[cid] = { total_invoiced: 0, pending_collection: 0, last_activity: null, doc_count: 0 }
+      map[cid].doc_count++
+      const total = (doc.total as number) || 0
+      if (doc.type === 'factura' || doc.type === 'factura_abono') map[cid].total_invoiced += total
+      if ((doc.type === 'factura') && ['pending', 'partial', 'open', 'sent'].includes(doc.status as string)) map[cid].pending_collection += total
+      const ca = doc.created_at as string
+      if (!map[cid].last_activity || ca > map[cid].last_activity!) map[cid].last_activity = ca
+    }
+    setClientMetrics(map)
+  }, [])
+
+  useEffect(() => { loadMetrics() }, [loadMetrics])
+
   // Group and filter
   const companies = useMemo(() => {
     let filtered = allClients
@@ -793,6 +819,54 @@ function ClientesTab() {
   }, [allClients, search, filterCountry])
 
   const visibleCompanies = useMemo(() => companies.slice(0, displayCount), [companies, displayCount])
+
+  // Build table rows with metrics
+  const tableRows = useMemo(() => {
+    return companies.map(c => {
+      // Aggregate metrics across all client IDs in this company group
+      let total_invoiced = 0, pending_collection = 0, doc_count = 0
+      let last_activity: string | null = null
+      for (const rec of c.records) {
+        const m = clientMetrics[rec.id]
+        if (m) {
+          total_invoiced += m.total_invoiced
+          pending_collection += m.pending_collection
+          doc_count += m.doc_count
+          if (m.last_activity && (!last_activity || m.last_activity > last_activity)) last_activity = m.last_activity
+        }
+      }
+      return {
+        ...c,
+        _total_invoiced: total_invoiced,
+        _pending_collection: pending_collection,
+        _last_activity: last_activity,
+        _doc_count: doc_count,
+        _days_inactive: last_activity ? Math.floor((Date.now() - new Date(last_activity).getTime()) / 86400000) : 999,
+        _country_display: `${countryFlags[c.country] || ''} ${c.country}`,
+        _is_favorite: (c.records[0] as unknown as Record<string, unknown>)?.is_favorite ? 'Si' : '',
+      } as Record<string, unknown>
+    })
+  }, [companies, clientMetrics])
+
+  const clientColumns: DataTableColumn[] = useMemo(() => [
+    { key: 'legal_name', label: 'Empresa', sortable: true, searchable: true, type: 'text' },
+    { key: 'tax_id', label: 'CIF/CUIT', sortable: true, searchable: true, type: 'text' },
+    { key: 'email', label: 'Email', sortable: true, searchable: true, type: 'text' },
+    { key: 'phone', label: 'Telefono', sortable: false, type: 'text', defaultVisible: false },
+    { key: 'city', label: 'Ciudad', sortable: true, searchable: true, type: 'text' },
+    { key: '_country_display', label: 'Pais', sortable: true, type: 'text' },
+    { key: 'category', label: 'Categoria', sortable: true, searchable: true, type: 'text' },
+    { key: 'payment_terms', label: 'Cond. Pago', sortable: true, type: 'text', defaultVisible: false },
+    { key: 'contactCount', label: 'Contactos', sortable: true, type: 'number' },
+    { key: '_total_invoiced', label: 'Total Facturado', sortable: true, type: 'currency' },
+    { key: '_pending_collection', label: 'Pend. Cobro', sortable: true, type: 'currency' },
+    { key: '_last_activity', label: 'Ultima Actividad', sortable: true, type: 'date' },
+    { key: '_days_inactive', label: 'Dias Inactivo', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_doc_count', label: 'Documentos', sortable: true, type: 'number', defaultVisible: false },
+    { key: 'credit_limit', label: 'Limite Credito', sortable: true, type: 'currency', defaultVisible: false },
+    { key: '_is_favorite', label: 'Favorito', sortable: true, type: 'text', defaultVisible: false },
+    { key: 'source', label: 'Fuente', sortable: true, type: 'text', defaultVisible: false },
+  ], [])
 
   async function createNewClient() {
     if (!newClient.legal_name.trim()) { addToast({ type: 'error', title: 'El nombre de la empresa es obligatorio' }); return }
@@ -860,6 +934,15 @@ function ClientesTab() {
 
       {/* Actions */}
       <div className="flex justify-end gap-2">
+        {/* View mode toggle */}
+        <div className="flex rounded-lg border border-[#2A3040] overflow-hidden">
+          <button onClick={() => setViewMode('card')} className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-all ${viewMode === 'card' ? 'bg-[#FF6600] text-white' : 'bg-[#141820] text-[#6B7280] hover:text-[#F0F2F5]'}`}>
+            <Grid3X3 size={14} /> Tarjetas
+          </button>
+          <button onClick={() => setViewMode('table')} className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-all ${viewMode === 'table' ? 'bg-[#FF6600] text-white' : 'bg-[#141820] text-[#6B7280] hover:text-[#F0F2F5]'}`}>
+            <List size={14} /> Tabla
+          </button>
+        </div>
         <ExportButton
           data={companies as unknown as Record<string, unknown>[]}
           filename="clientes_torquetools"
@@ -932,6 +1015,21 @@ function ClientesTab() {
           <p className="text-lg font-medium">No se encontraron empresas</p>
           <p className="text-sm mt-1">Proba con otros filtros o terminos de busqueda</p>
         </div>
+      ) : viewMode === 'table' ? (
+        <DataTable
+          data={tableRows}
+          columns={clientColumns}
+          loading={loading}
+          pageSize={50}
+          showTotals
+          totalLabel="empresas"
+          onRowClick={(row) => {
+            const comp = companies.find(c => c.id === (row.id as string))
+            if (comp) setSelectedCompany(comp)
+          }}
+          exportFilename="clientes_torquetools"
+          exportTargetTable="tt_clients"
+        />
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
