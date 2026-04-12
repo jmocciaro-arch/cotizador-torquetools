@@ -12,6 +12,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { DocumentDetailLayout, type WorkflowStep } from '@/components/workflow/document-detail-layout'
 import { DocumentItemsTree, type DocumentItem } from '@/components/workflow/document-items-tree'
+import { DocumentActions } from '@/components/workflow/document-actions'
 import {
   documentToTableRow, localQuoteToRow, localSOToRow, localDNToRow,
   localInvoiceToRow, paymentToRow, mapStatus
@@ -183,6 +184,8 @@ function PresupuestosTab() {
       requires_po: false, hasComponents: false,
     }))
 
+    const quoteSource = isDoc ? 'tt_documents' : 'local' as const
+
     return (
       <DocumentDetailLayout
         workflowSteps={steps}
@@ -202,6 +205,22 @@ function PresupuestosTab() {
         onBack={() => setSelectedQuote(null)}
         backLabel="Volver a presupuestos"
       >
+        <DocumentActions
+          document={selectedQuote}
+          documentType="coti"
+          source={quoteSource}
+          clientName={clientName}
+          onAction={(action) => {
+            if (action === 'order_created') {
+              setSelectedQuote(null)
+              load()
+            } else {
+              load()
+              // Recargar el detalle
+              if (selectedQuote) openDetail({ _raw: selectedQuote, _source: quoteSource } as Record<string, unknown>)
+            }
+          }}
+        />
         <DocumentItemsTree items={docItems} components={[]} showStock={false} />
       </DocumentDetailLayout>
     )
@@ -381,16 +400,7 @@ function PedidosTab() {
       }
     })
 
-    const actionButtons = (
-      <div className="flex gap-2 mt-4">
-        {(st === 'open' || st === 'partially_delivered') && (
-          <Button variant="secondary" onClick={() => openDelivery(selectedSO)}><Truck size={14} /> Generar Remito</Button>
-        )}
-        {(st === 'fully_delivered' || st === 'partially_invoiced') && (
-          <Button onClick={() => handleInvoice(selectedSO)}><CreditCard size={14} /> Generar Factura</Button>
-        )}
-      </div>
-    )
+    const soSource = isDoc ? 'tt_documents' : 'local' as const
 
     return (
       <DocumentDetailLayout
@@ -421,8 +431,17 @@ function PedidosTab() {
         onBack={() => setSelectedSO(null)}
         backLabel="Volver a pedidos"
       >
+        <DocumentActions
+          document={selectedSO}
+          documentType="pedido"
+          source={soSource}
+          clientName={clientName}
+          onAction={(action) => {
+            setSelectedSO(null)
+            load()
+          }}
+        />
         <DocumentItemsTree items={docItems} components={[]} showStock={false} />
-        {actionButtons}
       </DocumentDetailLayout>
     )
   }

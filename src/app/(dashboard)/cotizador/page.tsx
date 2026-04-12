@@ -14,6 +14,7 @@ import { formatCurrency, INCOTERMS } from '@/lib/utils'
 import type { Company, Client } from '@/types'
 import { DocumentDetailLayout, type WorkflowStep, type Alert, type InternalNote } from '@/components/workflow/document-detail-layout'
 import { DocumentItemsTree, type DocumentItem, type DocumentItemComponent } from '@/components/workflow/document-items-tree'
+import { DocumentActions } from '@/components/workflow/document-actions'
 import { DocumentListCard } from '@/components/workflow/document-list-card'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { mapStatus } from '@/lib/document-helpers'
@@ -427,6 +428,7 @@ export default function CotizadorPage() {
   // ================================================================
   if (viewMode === 'detail' && selectedQuote) {
     const { workflowSteps, document, client, comp, docItems, mockNotes } = buildQuoteDetailData(selectedQuote)
+    const quoteSource = ((selectedQuote as SavedQuote & { _source?: string })._source === 'tt_documents' ? 'tt_documents' : 'local') as 'local' | 'tt_documents'
 
     return (
       <DocumentDetailLayout
@@ -446,6 +448,24 @@ export default function CotizadorPage() {
         onBack={() => { setViewMode('list'); setSelectedQuote(null) }}
         backLabel="Volver a cotizaciones"
       >
+        <DocumentActions
+          document={{ ...selectedQuote, doc_number: selectedQuote.number }}
+          documentType="coti"
+          source={quoteSource}
+          clientName={client?.name}
+          clientEmail={undefined}
+          onAction={(action) => {
+            if (action === 'order_created') {
+              setViewMode('list')
+              setSelectedQuote(null)
+              loadSavedQuotes()
+            } else {
+              loadSavedQuotes()
+              // Recargar detalle con datos frescos
+              openQuoteDetail(selectedQuote)
+            }
+          }}
+        />
         <DocumentItemsTree items={docItems} components={[]} showStock={false} />
       </DocumentDetailLayout>
     )
