@@ -11,11 +11,13 @@ import { formatCurrency, formatDate, formatRelative, INCOTERMS } from '@/lib/uti
 import { mapStatus } from '@/lib/document-helpers'
 import { DocumentActions, type DocumentActionType } from './document-actions'
 import { SendDocumentModal } from './send-document-modal'
+import { useCompanyContext } from '@/lib/company-context'
 import {
   ArrowLeft, Edit3, Save, Printer, Mail, MoreVertical,
   ChevronLeft, ChevronRight, Trash2, Copy, RefreshCw,
   Plus, X, Search, FileText, Link2, Clock, Paperclip,
   PenTool, Loader2, ExternalLink, GripVertical, Eye, Send,
+  Building2, Minus,
 } from 'lucide-react'
 import { DocLink } from '@/components/ui/doc-link'
 
@@ -102,6 +104,20 @@ interface ActivityEntry {
   details: string
   created_at: string
   user_name: string
+}
+
+interface CompanyFullData {
+  id: string
+  name: string
+  legal_name: string | null
+  tax_id: string | null
+  address: string | null
+  city: string | null
+  postal_code: string | null
+  country: string | null
+  phone: string | null
+  email: string | null
+  website: string | null
 }
 
 // ===============================================================
@@ -206,6 +222,7 @@ export function DocumentForm({
 }: DocumentFormProps) {
   const { addToast } = useToast()
   const supabase = createClient()
+  const { activeCompany } = useCompanyContext()
 
   // Mode
   const [editMode, setEditMode] = useState(false)
@@ -216,6 +233,7 @@ export function DocumentForm({
   // Data
   const [doc, setDoc] = useState<DocumentData | null>(null)
   const [client, setClient] = useState<ClientData | null>(null)
+  const [company, setCompany] = useState<CompanyFullData | null>(null)
   const [items, setItems] = useState<ItemData[]>([])
   const [parentLinks, setParentLinks] = useState<LinkData[]>([])
   const [childLinks, setChildLinks] = useState<LinkData[]>([])
@@ -305,6 +323,17 @@ export function DocumentForm({
 
           if (clientJoined) {
             setClient(clientJoined)
+          }
+
+          // Load selling company
+          const companyId = docData.company_id || activeCompany?.id
+          if (companyId) {
+            const { data: companyData } = await supabase
+              .from('tt_companies')
+              .select('id, name, legal_name, tax_id, address, city, postal_code, country, phone, email, website')
+              .eq('id', companyId)
+              .single()
+            if (companyData) setCompany(companyData as CompanyFullData)
           }
 
           // Load items
@@ -437,6 +466,17 @@ export function DocumentForm({
           })
 
           if (clientJoined) setClient(clientJoined)
+
+          // Load selling company
+          const localCompanyId = localDoc.company_id || activeCompany?.id
+          if (localCompanyId) {
+            const { data: companyData } = await supabase
+              .from('tt_companies')
+              .select('id, name, legal_name, tax_id, address, city, postal_code, country, phone, email, website')
+              .eq('id', localCompanyId)
+              .single()
+            if (companyData) setCompany(companyData as CompanyFullData)
+          }
 
           // Load items
           const { data: itemsData } = await supabase
@@ -1013,6 +1053,7 @@ export function DocumentForm({
           source={source}
           clientName={client?.name || client?.legal_name || ''}
           clientEmail={client?.email || undefined}
+          clientId={client?.id || doc?.client_id || undefined}
           onAction={(action) => {
             loadDocument()
             onUpdate?.()
@@ -1040,6 +1081,49 @@ export function DocumentForm({
           ))}
         </div>
       )}
+
+      {/* ====== COMPANY + CLIENT HEADER (StelOrder style) ====== */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 print:grid-cols-2">
+        {/* LEFT: Empresa emisora (vendedora) */}
+        {company && (
+          <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Building2 size={14} className="text-[#FF6600]" />
+              <span className="text-[10px] font-bold text-[#6B7280] uppercase tracking-wider">Empresa emisora</span>
+            </div>
+            <p className="text-base font-bold text-[#F0F2F5] mb-1">{company.legal_name || company.name}</p>
+            {company.tax_id && <p className="text-xs text-[#9CA3AF] mb-1">CIF/CUIT: {company.tax_id}</p>}
+            {(company.address || company.city) && (
+              <p className="text-xs text-[#6B7280]">
+                {[company.address, company.city, company.postal_code, company.country].filter(Boolean).join(', ')}
+              </p>
+            )}
+            <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-2">
+              {company.phone && <span className="text-xs text-[#6B7280]">Tel: {company.phone}</span>}
+              {company.email && <span className="text-xs text-[#6B7280]">{company.email}</span>}
+              {company.website && <span className="text-xs text-[#6B7280]">{company.website}</span>}
+            </div>
+          </div>
+        )}
+
+        {/* RIGHT: Cliente (comprador) */}
+        <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <FileText size={14} className="text-[#3B82F6]" />
+            <span className="text-[10px] font-bold text-[#6B7280] uppercase tracking-wider">Cliente</span>
+          </div>
+          {client ? (
+            <>
+              <p className="text-base font-bold text-[#F0F2F5] mb-1">{client.legal_name || client.name}</p>
+              {client.tax_id && <p className="text-xs text-[#9CA3AF] mb-1">CIF/CUIT: {client.tax_id}</p>}
+              {client.email && <p className="text-xs text-[#6B7280]">{client.email}</p>}
+              {client.country && <p className="text-xs text-[#6B7280]">Pais: {client.country}</p>}
+            </>
+          ) : (
+            <p className="text-sm text-[#4B5563]">Sin cliente asignado</p>
+          )}
+        </div>
+      </div>
 
       {/* ====== HEADER SECTION ====== */}
       <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-5 mt-3">
@@ -1423,14 +1507,28 @@ export function DocumentForm({
                         </td>
                         <td className="px-4 py-3 text-right">
                           {editMode ? (
-                            <input
-                              type="number"
-                              value={editItems[idx]?.quantity ?? 0}
-                              onChange={(e) => updateEditItem(idx, 'quantity', Number(e.target.value))}
-                              className="h-8 w-full rounded bg-[#0B0E13] border border-[#2A3040] focus:border-[#FF6600] px-2 text-xs text-right text-[#F0F2F5] focus:outline-none"
-                            />
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => updateEditItem(idx, 'quantity', Math.max(1, (editItems[idx]?.quantity ?? 1) - 1))}
+                                className="w-7 h-7 flex items-center justify-center rounded bg-[#1E2330] hover:bg-[#2A3040] text-[#9CA3AF] hover:text-[#FF6600] transition-colors"
+                              >
+                                <Minus size={12} />
+                              </button>
+                              <input
+                                type="number"
+                                value={editItems[idx]?.quantity ?? 0}
+                                onChange={(e) => updateEditItem(idx, 'quantity', Number(e.target.value))}
+                                className="h-8 w-[80px] rounded bg-[#0B0E13] border border-[#2A3040] focus:border-[#FF6600] px-2 text-center text-sm font-bold text-[#F0F2F5] focus:outline-none"
+                              />
+                              <button
+                                onClick={() => updateEditItem(idx, 'quantity', (editItems[idx]?.quantity ?? 0) + 1)}
+                                className="w-7 h-7 flex items-center justify-center rounded bg-[#1E2330] hover:bg-[#2A3040] text-[#9CA3AF] hover:text-[#FF6600] transition-colors"
+                              >
+                                <Plus size={12} />
+                              </button>
+                            </div>
                           ) : (
-                            <span className="text-sm text-[#F0F2F5]">{item.quantity}</span>
+                            <span className="text-[16px] font-bold text-[#F0F2F5]">{item.quantity}</span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">

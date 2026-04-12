@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
 import { useToast } from '@/components/ui/toast'
 import { SendDocumentModal } from './send-document-modal'
+import { GenerateDeliveryNoteModal } from './generate-delivery-note-modal'
 import {
   quoteToOrder,
   orderToDeliveryNote,
@@ -33,6 +34,7 @@ interface DocumentActionsProps {
   source: 'local' | 'tt_documents'
   clientName?: string
   clientEmail?: string
+  clientId?: string
   onAction: (action: string, result?: Row) => void
 }
 
@@ -81,6 +83,7 @@ export function DocumentActions({
   source,
   clientName,
   clientEmail,
+  clientId,
   onAction,
 }: DocumentActionsProps) {
   const { addToast } = useToast()
@@ -88,6 +91,7 @@ export function DocumentActions({
   const [showSendModal, setShowSendModal] = useState(false)
   const [showRejectModal, setShowRejectModal] = useState(false)
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+  const [showMultiOCDeliveryModal, setShowMultiOCDeliveryModal] = useState(false)
   const [showPaymentModal, setShowPaymentModal] = useState(false)
 
   // Reject modal state
@@ -177,6 +181,13 @@ export function DocumentActions({
   }
 
   const openDeliveryModal = async () => {
+    // If we have a clientId, use the multi-OC modal
+    if (clientId) {
+      setShowMultiOCDeliveryModal(true)
+      return
+    }
+
+    // Fallback to simple modal
     const supabase = createClient()
     const { data } = await supabase
       .from('tt_so_items')
@@ -412,6 +423,21 @@ export function DocumentActions({
           </div>
         </div>
       </Modal>
+
+      {/* Multi-OC Delivery Modal */}
+      {clientId && (
+        <GenerateDeliveryNoteModal
+          isOpen={showMultiOCDeliveryModal}
+          onClose={() => setShowMultiOCDeliveryModal(false)}
+          clientId={clientId}
+          clientName={clientName || 'Cliente'}
+          currentOrderId={docId}
+          currentOrderSource={source}
+          onCreated={(result) => {
+            onAction('delivery_note_created', result as unknown as Row)
+          }}
+        />
+      )}
 
       {/* Payment Modal */}
       <Modal isOpen={showPaymentModal} onClose={() => setShowPaymentModal(false)} title="Registrar Cobro" size="md">

@@ -52,7 +52,7 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#FF6600] mb-4 shadow-lg shadow-orange-500/20">
-            <span className="text-white font-bold text-2xl">TT</span>
+            <span className="text-white font-bold text-3xl italic" style={{ fontFamily: 'Georgia, serif' }}>M</span>
           </div>
           <h1 className="text-2xl font-bold text-[#F0F2F5]">Mocciaro Soft</h1>
           <p className="text-[#6B7280] mt-1">Sistema de Gestión Integral</p>

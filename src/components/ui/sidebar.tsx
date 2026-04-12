@@ -41,7 +41,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { label: 'CRM / Leads', href: '/crm?tab=pipeline', icon: Target, requiredPermissions: ['view_crm'] },
   { label: 'Cotizador', href: '/cotizador', icon: FileText, badgeKey: 'quotes_draft', requiredPermissions: ['create_quote', 'edit_quote', 'view_sales_reports'] },
   { label: 'Pedidos', href: '/ventas?tab=pedidos', icon: ClipboardList, badgeKey: 'so_open', requiredPermissions: ['create_order', 'approve_order', 'view_sales_reports'] },
@@ -108,13 +108,13 @@ export function Sidebar() {
   const isActive = (href: string) => {
     const basePath = href.split('?')[0]
     const hrefTab = new URLSearchParams(href.split('?')[1] || '').get('tab')
-    if (basePath === '/') return pathname === '/'
+    if (basePath === '/dashboard') return pathname === '/dashboard' || pathname === '/'
     if (!pathname.startsWith(basePath)) return false
     if (hrefTab) {
       const currentTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
       return currentTab === hrefTab
     }
-    return pathname === basePath
+    return pathname === basePath || pathname.startsWith(basePath + '/')
   }
 
   // Filter nav items based on permissions
@@ -148,12 +148,12 @@ export function Sidebar() {
         {/* Logo */}
         <div className="flex items-center gap-3 px-4 h-16 border-b border-[#1E2330] shrink-0">
           <div className="w-9 h-9 rounded-lg bg-[#FF6600] flex items-center justify-center shrink-0">
-            <span className="text-white font-bold text-sm">TT</span>
+            <span className="text-white font-bold text-lg italic" style={{ fontFamily: 'Georgia, serif' }}>M</span>
           </div>
           {!collapsed && (
             <div className="overflow-hidden">
-              <h1 className="text-[#F0F2F5] font-bold text-sm leading-tight truncate">TorqueTools</h1>
-              <p className="text-[10px] text-[#6B7280] truncate">Mocciaro Soft</p>
+              <h1 className="text-[#F0F2F5] font-bold text-sm leading-tight truncate">Mocciaro Soft</h1>
+              <p className="text-[10px] text-[#6B7280] truncate">ERP / CRM</p>
             </div>
           )}
           {/* Mobile close */}
@@ -226,13 +226,13 @@ export function MobileNav() {
   const isActive = (href: string) => {
     const basePath = href.split('?')[0]
     const hrefTab = new URLSearchParams(href.split('?')[1] || '').get('tab')
-    if (basePath === '/') return pathname === '/'
+    if (basePath === '/dashboard') return pathname === '/dashboard' || pathname === '/'
     if (!pathname.startsWith(basePath)) return false
     if (hrefTab) {
       const currentTab = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('tab') : null
       return currentTab === hrefTab
     }
-    return pathname === basePath
+    return pathname === basePath || pathname.startsWith(basePath + '/')
   }
 
   return (
@@ -281,7 +281,7 @@ export function TopBar({ userName }: { userName?: string }) {
         {/* User info */}
         <div className="text-right hidden sm:block">
           <p className="text-sm font-medium text-[#F0F2F5]">{userName || 'Usuario'}</p>
-          <p className="text-[10px] text-[#6B7280]">TorqueTools</p>
+          <p className="text-[10px] text-[#6B7280]">Mocciaro Soft</p>
         </div>
         <div className="w-9 h-9 rounded-full bg-[#FF6600] flex items-center justify-center text-white text-sm font-bold">
           {userName?.charAt(0)?.toUpperCase() || 'U'}
