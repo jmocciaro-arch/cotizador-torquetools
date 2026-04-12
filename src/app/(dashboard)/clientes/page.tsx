@@ -737,7 +737,12 @@ function ClientesTab() {
   const [savingNew, setSavingNew] = useState(false)
   const [displayCount, setDisplayCount] = useState(60)
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
-  const [clientMetrics, setClientMetrics] = useState<Record<string, { total_invoiced: number; pending_collection: number; last_activity: string | null; doc_count: number }>>({})
+  const [clientMetrics, setClientMetrics] = useState<Record<string, {
+    total_invoiced: number; pending_collection: number; last_activity: string | null; doc_count: number
+    total_quoted: number; total_ordered: number; pending_delivery: number; pending_invoicing: number
+    payments_received: number; quotes_count: number; orders_count: number; invoices_count: number
+    delivery_notes_count: number; oldest_unpaid: string | null
+  }>>({})
 
   async function toggleFavorite(clientId: string, isFavorite: boolean) {
     const supabase = createClient()
@@ -781,23 +786,58 @@ function ClientesTab() {
 
   useEffect(() => { loadClients() }, [loadClients])
 
-  // Load client metrics (invoiced, pending, last activity)
+  // Load client metrics (all transactional data)
   const loadMetrics = useCallback(async () => {
     const sb = createClient()
     const { data } = await sb.from('tt_documents')
       .select('client_id, type, status, total, created_at')
       .not('client_id', 'is', null)
     if (!data) return
-    const map: Record<string, { total_invoiced: number; pending_collection: number; last_activity: string | null; doc_count: number }> = {}
+    type M = typeof clientMetrics extends Record<string, infer V> ? V : never
+    const empty = (): M => ({
+      total_invoiced: 0, pending_collection: 0, last_activity: null, doc_count: 0,
+      total_quoted: 0, total_ordered: 0, pending_delivery: 0, pending_invoicing: 0,
+      payments_received: 0, quotes_count: 0, orders_count: 0, invoices_count: 0,
+      delivery_notes_count: 0, oldest_unpaid: null,
+    })
+    const map: Record<string, M> = {}
     for (const doc of data) {
       const cid = doc.client_id as string
-      if (!map[cid]) map[cid] = { total_invoiced: 0, pending_collection: 0, last_activity: null, doc_count: 0 }
-      map[cid].doc_count++
+      if (!map[cid]) map[cid] = empty()
+      const m = map[cid]
+      m.doc_count++
       const total = (doc.total as number) || 0
-      if (doc.type === 'factura' || doc.type === 'factura_abono') map[cid].total_invoiced += total
-      if ((doc.type === 'factura') && ['pending', 'partial', 'open', 'sent'].includes(doc.status as string)) map[cid].pending_collection += total
+      const st = doc.status as string
+      const tp = doc.type as string
       const ca = doc.created_at as string
-      if (!map[cid].last_activity || ca > map[cid].last_activity!) map[cid].last_activity = ca
+      if (!m.last_activity || ca > m.last_activity) m.last_activity = ca
+
+      // Cotizaciones
+      if (tp === 'presupuesto' || tp === 'quote') { m.total_quoted += total; m.quotes_count++ }
+      // Pedidos
+      if (tp === 'pedido' || tp === 'order' || tp === 'so') { m.total_ordered += total; m.orders_count++ }
+      // Albaranes
+      if (tp === 'albaran' || tp === 'delivery_note') { m.delivery_notes_count++ }
+      // Facturas
+      if (tp === 'factura' || tp === 'factura_abono' || tp === 'invoice') {
+        m.total_invoiced += total; m.invoices_count++
+        if (['pending', 'partial', 'open', 'sent'].includes(st)) {
+          m.pending_collection += total
+          if (!m.oldest_unpaid || ca < m.oldest_unpaid) m.oldest_unpaid = ca
+        }
+      }
+      // Pedidos pendientes de entrega (mercaderia por llegar al cliente)
+      if ((tp === 'pedido' || tp === 'order' || tp === 'so') && ['open', 'partial', 'confirmed'].includes(st)) {
+        m.pending_delivery += total
+      }
+      // Pendiente de facturar (albaranes entregados sin facturar)
+      if ((tp === 'albaran' || tp === 'delivery_note') && ['delivered', 'completed', 'open'].includes(st)) {
+        m.pending_invoicing += total
+      }
+    }
+    // Pagos recibidos = total facturado - pendiente cobro
+    for (const cid of Object.keys(map)) {
+      map[cid].payments_received = map[cid].total_invoiced - map[cid].pending_collection
     }
     setClientMetrics(map)
   }, [])
@@ -820,51 +860,97 @@ function ClientesTab() {
 
   const visibleCompanies = useMemo(() => companies.slice(0, displayCount), [companies, displayCount])
 
+  // Compute global totals for % calculation
+  const globalTotalInvoiced = useMemo(() => {
+    let t = 0
+    for (const m of Object.values(clientMetrics)) t += m.total_invoiced
+    return t || 1 // avoid div by zero
+  }, [clientMetrics])
+
   // Build table rows with metrics
   const tableRows = useMemo(() => {
     return companies.map(c => {
       // Aggregate metrics across all client IDs in this company group
       let total_invoiced = 0, pending_collection = 0, doc_count = 0
+      let total_quoted = 0, total_ordered = 0, pending_delivery = 0, pending_invoicing = 0
+      let payments_received = 0, quotes_count = 0, orders_count = 0, invoices_count = 0, delivery_notes_count = 0
       let last_activity: string | null = null
+      let oldest_unpaid: string | null = null
       for (const rec of c.records) {
         const m = clientMetrics[rec.id]
         if (m) {
-          total_invoiced += m.total_invoiced
-          pending_collection += m.pending_collection
-          doc_count += m.doc_count
+          total_invoiced += m.total_invoiced; pending_collection += m.pending_collection
+          doc_count += m.doc_count; total_quoted += m.total_quoted; total_ordered += m.total_ordered
+          pending_delivery += m.pending_delivery; pending_invoicing += m.pending_invoicing
+          payments_received += m.payments_received; quotes_count += m.quotes_count
+          orders_count += m.orders_count; invoices_count += m.invoices_count
+          delivery_notes_count += m.delivery_notes_count
           if (m.last_activity && (!last_activity || m.last_activity > last_activity)) last_activity = m.last_activity
+          if (m.oldest_unpaid && (!oldest_unpaid || m.oldest_unpaid < oldest_unpaid)) oldest_unpaid = m.oldest_unpaid
         }
       }
+      const daysInactive = last_activity ? Math.floor((Date.now() - new Date(last_activity).getTime()) / 86400000) : 999
+      const daysOldestUnpaid = oldest_unpaid ? Math.floor((Date.now() - new Date(oldest_unpaid).getTime()) / 86400000) : 0
+      const pctRevenue = Math.round((total_invoiced / globalTotalInvoiced) * 10000) / 100
+
       return {
         ...c,
         _total_invoiced: total_invoiced,
         _pending_collection: pending_collection,
+        _payments_received: payments_received,
+        _total_quoted: total_quoted,
+        _total_ordered: total_ordered,
+        _pending_delivery: pending_delivery,
+        _pending_invoicing: pending_invoicing,
         _last_activity: last_activity,
         _doc_count: doc_count,
-        _days_inactive: last_activity ? Math.floor((Date.now() - new Date(last_activity).getTime()) / 86400000) : 999,
+        _quotes_count: quotes_count,
+        _orders_count: orders_count,
+        _invoices_count: invoices_count,
+        _delivery_notes_count: delivery_notes_count,
+        _days_inactive: daysInactive,
+        _days_oldest_unpaid: daysOldestUnpaid,
+        _pct_revenue: pctRevenue,
         _country_display: `${countryFlags[c.country] || ''} ${c.country}`,
         _is_favorite: (c.records[0] as unknown as Record<string, unknown>)?.is_favorite ? 'Si' : '',
       } as Record<string, unknown>
     })
-  }, [companies, clientMetrics])
+  }, [companies, clientMetrics, globalTotalInvoiced])
 
   const clientColumns: DataTableColumn[] = useMemo(() => [
+    // --- Datos base ---
+    { key: '_is_favorite', label: 'Fav', sortable: true, type: 'text', width: '50px' },
     { key: 'legal_name', label: 'Empresa', sortable: true, searchable: true, type: 'text' },
     { key: 'tax_id', label: 'CIF/CUIT', sortable: true, searchable: true, type: 'text' },
-    { key: 'email', label: 'Email', sortable: true, searchable: true, type: 'text' },
+    { key: 'email', label: 'Email', sortable: true, searchable: true, type: 'text', defaultVisible: false },
     { key: 'phone', label: 'Telefono', sortable: false, type: 'text', defaultVisible: false },
-    { key: 'city', label: 'Ciudad', sortable: true, searchable: true, type: 'text' },
+    { key: 'city', label: 'Ciudad', sortable: true, searchable: true, type: 'text', defaultVisible: false },
     { key: '_country_display', label: 'Pais', sortable: true, type: 'text' },
     { key: 'category', label: 'Categoria', sortable: true, searchable: true, type: 'text' },
     { key: 'payment_terms', label: 'Cond. Pago', sortable: true, type: 'text', defaultVisible: false },
-    { key: 'contactCount', label: 'Contactos', sortable: true, type: 'number' },
+    { key: 'contactCount', label: 'Contactos', sortable: true, type: 'number', defaultVisible: false },
+    // --- Facturacion ---
     { key: '_total_invoiced', label: 'Total Facturado', sortable: true, type: 'currency' },
+    { key: '_pct_revenue', label: '% Facturacion', sortable: true, type: 'number', render: (v) => v ? `${v}%` : '-' },
     { key: '_pending_collection', label: 'Pend. Cobro', sortable: true, type: 'currency' },
+    { key: '_payments_received', label: 'Cobrado', sortable: true, type: 'currency', defaultVisible: false },
+    { key: '_days_oldest_unpaid', label: 'Dias Deuda', sortable: true, type: 'number', render: (v) => { const d = v as number; return d > 90 ? `${d}d` : d > 0 ? `${d}d` : '-' } },
+    // --- Pipeline ---
+    { key: '_total_quoted', label: 'Cotizado', sortable: true, type: 'currency', defaultVisible: false },
+    { key: '_total_ordered', label: 'Pedido', sortable: true, type: 'currency', defaultVisible: false },
+    { key: '_pending_delivery', label: 'Merc. Pendiente', sortable: true, type: 'currency' },
+    { key: '_pending_invoicing', label: 'Pend. Facturar', sortable: true, type: 'currency' },
+    // --- Actividad ---
     { key: '_last_activity', label: 'Ultima Actividad', sortable: true, type: 'date' },
-    { key: '_days_inactive', label: 'Dias Inactivo', sortable: true, type: 'number', defaultVisible: false },
-    { key: '_doc_count', label: 'Documentos', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_days_inactive', label: 'Dias Inactivo', sortable: true, type: 'number' },
+    // --- Contadores ---
+    { key: '_quotes_count', label: 'Cotizaciones', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_orders_count', label: 'Pedidos', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_delivery_notes_count', label: 'Albaranes', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_invoices_count', label: 'Facturas', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_doc_count', label: 'Total Docs', sortable: true, type: 'number', defaultVisible: false },
+    // --- Extra ---
     { key: 'credit_limit', label: 'Limite Credito', sortable: true, type: 'currency', defaultVisible: false },
-    { key: '_is_favorite', label: 'Favorito', sortable: true, type: 'text', defaultVisible: false },
     { key: 'source', label: 'Fuente', sortable: true, type: 'text', defaultVisible: false },
   ], [])
 
