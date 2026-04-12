@@ -802,7 +802,11 @@ function ProveedoresTab() {
   const [newSupplier, setNewSupplier] = useState({ name: '', legal_name: '', tax_id: '', category: '', country: 'ES', city: '', email: '', phone: '', address: '', payment_terms: '', notes: '' })
   const [savingNew, setSavingNew] = useState(false)
   const [viewMode, setViewMode] = useState<'card' | 'table'>('card')
-  const [supplierMetrics, setSupplierMetrics] = useState<Record<string, { total_purchased: number; pending_invoices: number; last_purchase: string | null }>>({})
+  const [supplierMetrics, setSupplierMetrics] = useState<Record<string, {
+    total_purchased: number; pending_invoices: number; paid_amount: number; last_purchase: string | null
+    po_count: number; po_open: number; po_pending_delivery: number; invoices_count: number
+    payments_count: number; oldest_unpaid: string | null; receipts_count: number
+  }>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -818,25 +822,51 @@ function ProveedoresTab() {
 
   useEffect(() => { load() }, [load])
 
-  // Load supplier metrics
+  // Load supplier metrics (all transactional data)
   const loadSupplierMetrics = useCallback(async () => {
     const sb = createClient()
-    const [{ data: poData }, { data: invData }] = await Promise.all([
-      sb.from('tt_purchase_orders').select('supplier_id, total, created_at').not('supplier_id', 'is', null),
-      sb.from('tt_purchase_invoices').select('supplier_id, total, paid_amount, status').not('supplier_id', 'is', null),
+    const [{ data: poData }, { data: invData }, { data: payData }] = await Promise.all([
+      sb.from('tt_purchase_orders').select('supplier_id, total, status, created_at').not('supplier_id', 'is', null),
+      sb.from('tt_purchase_invoices').select('supplier_id, total, paid_amount, status, created_at, due_date').not('supplier_id', 'is', null),
+      sb.from('tt_purchase_payments').select('supplier_id, amount, payment_date').not('supplier_id', 'is', null),
     ])
-    const map: Record<string, { total_purchased: number; pending_invoices: number; last_purchase: string | null }> = {}
+    type M = typeof supplierMetrics extends Record<string, infer V> ? V : never
+    const empty = (): M => ({
+      total_purchased: 0, pending_invoices: 0, paid_amount: 0, last_purchase: null,
+      po_count: 0, po_open: 0, po_pending_delivery: 0, invoices_count: 0,
+      payments_count: 0, oldest_unpaid: null, receipts_count: 0,
+    })
+    const map: Record<string, M> = {}
+    // Purchase orders
     for (const po of (poData || [])) {
       const sid = po.supplier_id as string
-      if (!map[sid]) map[sid] = { total_purchased: 0, pending_invoices: 0, last_purchase: null }
-      map[sid].total_purchased += (po.total as number) || 0
+      if (!map[sid]) map[sid] = empty()
+      const m = map[sid]
+      m.total_purchased += (po.total as number) || 0
+      m.po_count++
+      const st = po.status as string
+      if (['draft', 'sent', 'partial'].includes(st)) { m.po_open++; m.po_pending_delivery += (po.total as number) || 0 }
       const ca = po.created_at as string
-      if (!map[sid].last_purchase || ca > map[sid].last_purchase!) map[sid].last_purchase = ca
+      if (!m.last_purchase || ca > m.last_purchase) m.last_purchase = ca
     }
+    // Invoices
     for (const inv of (invData || [])) {
       const sid = inv.supplier_id as string
-      if (!map[sid]) map[sid] = { total_purchased: 0, pending_invoices: 0, last_purchase: null }
-      if (inv.status !== 'paid') map[sid].pending_invoices += ((inv.total as number) || 0) - ((inv.paid_amount as number) || 0)
+      if (!map[sid]) map[sid] = empty()
+      const m = map[sid]
+      m.invoices_count++
+      if (inv.status !== 'paid') {
+        m.pending_invoices += ((inv.total as number) || 0) - ((inv.paid_amount as number) || 0)
+        const due = (inv.due_date || inv.created_at) as string
+        if (!m.oldest_unpaid || due < m.oldest_unpaid) m.oldest_unpaid = due
+      }
+    }
+    // Payments
+    for (const pay of (payData || [])) {
+      const sid = pay.supplier_id as string
+      if (!map[sid]) map[sid] = empty()
+      map[sid].paid_amount += (pay.amount as number) || 0
+      map[sid].payments_count++
     }
     setSupplierMetrics(map)
   }, [])
@@ -857,21 +887,43 @@ function ProveedoresTab() {
     return result
   }, [suppliers, search, filterCountry, filterCategory])
 
+  // Global total for % calculation
+  const globalTotalPurchased = useMemo(() => {
+    let t = 0
+    for (const m of Object.values(supplierMetrics)) t += m.total_purchased
+    return t || 1
+  }, [supplierMetrics])
+
   // Table rows with metrics
   const supplierTableRows = useMemo(() => {
     return filtered.map(s => {
       const m = supplierMetrics[s.id]
+      const totalPurchased = m?.total_purchased || 0
+      const pendingInv = m?.pending_invoices || 0
+      const daysOldestUnpaid = m?.oldest_unpaid ? Math.floor((Date.now() - new Date(m.oldest_unpaid).getTime()) / 86400000) : 0
+      const daysInactive = m?.last_purchase ? Math.floor((Date.now() - new Date(m.last_purchase).getTime()) / 86400000) : 999
+      const pctPurchase = Math.round((totalPurchased / globalTotalPurchased) * 10000) / 100
       return {
         ...s,
-        _total_purchased: m?.total_purchased || 0,
-        _pending_invoices: m?.pending_invoices || 0,
+        _total_purchased: totalPurchased,
+        _pending_invoices: pendingInv,
+        _paid_amount: m?.paid_amount || 0,
         _last_purchase: m?.last_purchase || null,
+        _po_count: m?.po_count || 0,
+        _po_open: m?.po_open || 0,
+        _po_pending_delivery: m?.po_pending_delivery || 0,
+        _invoices_count: m?.invoices_count || 0,
+        _payments_count: m?.payments_count || 0,
+        _days_oldest_unpaid: daysOldestUnpaid,
+        _days_inactive: daysInactive,
+        _pct_purchase: pctPurchase,
         _country_display: `${countryFlags[s.country || ''] || ''} ${s.country || ''}`,
       } as Record<string, unknown>
     })
-  }, [filtered, supplierMetrics])
+  }, [filtered, supplierMetrics, globalTotalPurchased])
 
   const supplierColumns: DataTableColumn[] = useMemo(() => [
+    // --- Datos base ---
     { key: 'name', label: 'Nombre', sortable: true, searchable: true, type: 'text' },
     { key: 'legal_name', label: 'Razon Social', sortable: true, searchable: true, type: 'text', defaultVisible: false },
     { key: 'tax_id', label: 'CIF/CUIT', sortable: true, searchable: true, type: 'text' },
@@ -881,9 +933,24 @@ function ProveedoresTab() {
     { key: '_country_display', label: 'Pais', sortable: true, type: 'text' },
     { key: 'category', label: 'Categoria', sortable: true, searchable: true, type: 'text' },
     { key: 'payment_terms', label: 'Cond. Pago', sortable: true, type: 'text' },
+    // --- Compras ---
     { key: '_total_purchased', label: 'Total Comprado', sortable: true, type: 'currency' },
-    { key: '_pending_invoices', label: 'Fact. Pendientes', sortable: true, type: 'currency' },
+    { key: '_pct_purchase', label: '% Compras', sortable: true, type: 'number', render: (v) => v ? `${v}%` : '-' },
+    { key: '_pending_invoices', label: 'Deuda Pend.', sortable: true, type: 'currency' },
+    { key: '_paid_amount', label: 'Total Pagado', sortable: true, type: 'currency', defaultVisible: false },
+    { key: '_days_oldest_unpaid', label: 'Dias Deuda', sortable: true, type: 'number', render: (v) => { const d = v as number; return d > 0 ? `${d}d` : '-' } },
+    // --- Pipeline ---
+    { key: '_po_pending_delivery', label: 'Merc. Pendiente', sortable: true, type: 'currency' },
+    { key: '_po_open', label: 'OC Abiertas', sortable: true, type: 'number' },
+    // --- Actividad ---
     { key: '_last_purchase', label: 'Ultima Compra', sortable: true, type: 'date' },
+    { key: '_days_inactive', label: 'Dias Inactivo', sortable: true, type: 'number' },
+    // --- Contadores ---
+    { key: '_po_count', label: 'Total OC', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_invoices_count', label: 'Facturas', sortable: true, type: 'number', defaultVisible: false },
+    { key: '_payments_count', label: 'Pagos', sortable: true, type: 'number', defaultVisible: false },
+    // --- Extra ---
+    { key: 'notes', label: 'Notas', sortable: false, type: 'text', defaultVisible: false },
     { key: 'created_at', label: 'Creado', sortable: true, type: 'date', defaultVisible: false },
   ], [])
 
