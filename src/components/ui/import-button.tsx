@@ -180,9 +180,6 @@ export function ImportButton({
   // UPSERT mode
   const [upsertMode, setUpsertMode] = useState(true)
 
-  // Permission check
-  if (permission && !can(permission) && !can('import_data') && !isSuper) return null
-
   // ─── File handler ───
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -531,6 +528,9 @@ export function ImportButton({
 
   // ─── Preview rows (first 10) ───
   const previewRows = csvRows.slice(0, 10)
+
+  // Permission check (MUST be after all hooks)
+  if (permission && !can(permission) && !can('import_data') && !isSuper) return null
 
   return (
     <>
