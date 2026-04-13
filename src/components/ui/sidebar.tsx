@@ -7,7 +7,7 @@ import {
   LayoutDashboard, FileText, Package, Users, Warehouse, Target,
   ShoppingCart, Receipt, Wrench, Calendar, Mail, Settings,
   ChevronLeft, ChevronRight, Menu, X, LogOut, ClipboardList,
-  Truck, CreditCard, Building2
+  Truck, CreditCard, Building2, BarChart3
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -53,6 +53,7 @@ const navItems: NavItem[] = [
   { label: 'Clientes', href: '/clientes', icon: Users, requiredPermissions: ['view_clients'] },
   { label: 'Catalogo', href: '/catalogo', icon: Package, requiredPermissions: ['view_catalog'] },
   { label: 'SAT', href: '/sat', icon: Wrench, badgeKey: 'sat_open', requiredPermissions: ['view_sat'] },
+  { label: 'Informes', href: '/informes', icon: BarChart3, requiredPermissions: ['view_sales_reports', 'view_financials'] },
   { label: 'Admin', href: '/admin', icon: Settings, requiredPermissions: ['admin_users'] },
 ]
 
@@ -130,7 +131,7 @@ export function Sidebar() {
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden print:hidden"
           onClick={() => setMobileOpen(false)}
         />
       )}
@@ -138,7 +139,7 @@ export function Sidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          'fixed top-0 left-0 z-50 h-full bg-[#0A0D12] border-r border-[#1E2330] flex flex-col transition-all duration-300',
+          'fixed top-0 left-0 z-50 h-full bg-[#0A0D12] border-r border-[#1E2330] flex flex-col transition-all duration-300 print:hidden',
           collapsed ? 'w-[72px]' : 'w-[260px]',
           // Mobile
           'lg:translate-x-0',
@@ -236,7 +237,7 @@ export function MobileNav() {
   }
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0A0D12] border-t border-[#1E2330] lg:hidden safe-area-pb">
+    <nav className="fixed bottom-0 left-0 right-0 z-40 bg-[#0A0D12] border-t border-[#1E2330] lg:hidden safe-area-pb print:hidden">
       <div className="flex items-center justify-around px-2 py-1">
         {mobileItems.map((item) => {
           const Icon = item.icon
@@ -264,7 +265,7 @@ export function TopBar({ userName }: { userName?: string }) {
   const { setMobileOpen } = useSidebar()
 
   return (
-    <header className="h-16 bg-[#0A0D12]/80 backdrop-blur-xl border-b border-[#1E2330] flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30">
+    <header className="h-16 bg-[#0A0D12]/80 backdrop-blur-xl border-b border-[#1E2330] flex items-center justify-between px-4 lg:px-6 sticky top-0 z-30 print:hidden">
       <div className="flex items-center gap-3">
         <button
           onClick={() => setMobileOpen(true)}

@@ -159,3 +159,89 @@ body {
 .dashboard-grid-container:not(.dashboard-editing) .react-resizable-handle {
   display: none;
 }
+
+/* ─── Print Styles ─── */
+@media print {
+  /* Override dark theme */
+  html { color-scheme: light !important; }
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide all UI chrome */
+  aside,
+  nav,
+  header,
+  .print\:hidden,
+  [class*="mobile-nav"],
+  [class*="MobileNav"] {
+    display: none !important;
+  }
+
+  /* Remove layout offset from sidebar */
+  div[class*="lg:ml-"] {
+    margin-left: 0 !important;
+  }
+
+  /* Main content takes full width */
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Show print-only elements */
+  .print\:block { display: block !important; }
+  .print\:flex { display: flex !important; }
+  .print\:grid { display: grid !important; }
+  .print\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+
+  /* A4 page setup */
+  @page {
+    size: A4;
+    margin: 15mm 10mm;
+  }
+
+  /* Clean backgrounds for print */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  .print\:bg-white { background: white !important; }
+  .print\:text-black { color: black !important; }
+
+  /* Make cards print-friendly */
+  .print\:bg-white *,
+  .print\:text-black * {
+    background-color: white !important;
+    color: black !important;
+    border-color: #ccc !important;
+  }
+
+  /* Keep accent colors for badges/status */
+  .print-keep-color {
+    color: inherit !important;
+    background-color: inherit !important;
+  }
+
+  /* Prevent page breaks inside key elements */
+  table { page-break-inside: auto; }
+  tr { page-break-inside: avoid; page-break-after: auto; }
+  thead { display: table-header-group; }
+
+  /* Ensure table prints well */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+  th, td {
+    border-bottom: 1px solid #ddd !important;
+    padding: 6px 8px !important;
+  }
+}

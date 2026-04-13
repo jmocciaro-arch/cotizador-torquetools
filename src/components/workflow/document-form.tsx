@@ -1079,6 +1079,42 @@ export function DocumentForm({
         />
       )}
 
+      {/* ====== PRINT-ONLY HEADER ====== */}
+      <div className="hidden print:block mb-6">
+        <div className="flex justify-between border-b-2 border-black pb-4">
+          <div>
+            {company && (
+              <>
+                <h1 className="text-xl font-bold">{company.legal_name || company.name}</h1>
+                {company.tax_id && <p className="text-sm">CIF/CUIT: {company.tax_id}</p>}
+                {company.email && <p className="text-sm">{company.email}</p>}
+                {company.phone && <p className="text-sm">Tel: {company.phone}</p>}
+                {(company.address || company.city) && (
+                  <p className="text-sm">{[company.address, company.city, company.postal_code, company.country].filter(Boolean).join(', ')}</p>
+                )}
+              </>
+            )}
+          </div>
+          <div className="text-right">
+            <p className="text-xs font-bold uppercase tracking-wider">{TYPE_LABELS[documentType] || documentType}</p>
+            <h2 className="text-lg font-bold">{doc.display_ref || doc.system_code}</h2>
+            <p className="text-sm">Fecha: {doc.created_at ? formatDate(doc.created_at) : '-'}</p>
+            <p className="text-sm">Estado: {currentStatus.label || mapStatus(doc.status)}</p>
+            {doc.payment_terms && (
+              <p className="text-sm">Pago: {PAYMENT_TERMS.find(pt => pt.value === doc.payment_terms)?.label || doc.payment_terms}</p>
+            )}
+          </div>
+        </div>
+        {client && (
+          <div className="mt-3 pt-2">
+            <p className="text-xs font-bold uppercase tracking-wider mb-1">Cliente</p>
+            <p className="text-sm font-bold">{client.legal_name || client.name}</p>
+            {client.tax_id && <p className="text-sm">CIF/CUIT: {client.tax_id}</p>}
+            {client.email && <p className="text-sm">{client.email}</p>}
+          </div>
+        )}
+      </div>
+
       {/* ====== PARENT DOC LINK ====== */}
       {parentLinks.length > 0 && (
         <div className="flex items-center gap-2 px-1 py-2 print:hidden">
@@ -1101,7 +1137,7 @@ export function DocumentForm({
       )}
 
       {/* ====== COMPANY + CLIENT HEADER (StelOrder style) ====== */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 print:grid-cols-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 print:hidden">
         {/* LEFT: Empresa emisora (vendedora) */}
         {company && (
           <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-4">
@@ -1144,7 +1180,7 @@ export function DocumentForm({
       </div>
 
       {/* ====== HEADER SECTION ====== */}
-      <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-5 mt-3">
+      <div className="bg-[#141820] rounded-xl border border-[#2A3040] p-5 mt-3 print:hidden">
         {/* Row 1: Type badge + Ref + Status */}
         <div className="flex items-center justify-between gap-4 mb-5">
           <div className="flex items-center gap-3 flex-wrap">
@@ -1409,8 +1445,101 @@ export function DocumentForm({
         </div>
       </div>
 
+      {/* ====== PRINT-ONLY: ITEMS TABLE + TOTALS + NOTES ====== */}
+      <div className="hidden print:block mt-4">
+        {/* Items table for print */}
+        <table className="w-full text-sm border-collapse">
+          <thead>
+            <tr className="border-b-2 border-black text-xs uppercase tracking-wider">
+              <th className="text-left px-2 py-2 w-28">Ref.</th>
+              <th className="text-left px-2 py-2">Descripcion</th>
+              <th className="text-right px-2 py-2 w-24">Precio</th>
+              <th className="text-right px-2 py-2 w-16">Uds.</th>
+              <th className="text-right px-2 py-2 w-20">% Dto.</th>
+              <th className="text-right px-2 py-2 w-28">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => {
+              if (item.is_section) {
+                return (
+                  <tr key={item.id} className="border-b border-gray-300 bg-gray-50">
+                    <td colSpan={6} className="px-2 py-2 text-sm font-bold">
+                      {item.section_label}
+                    </td>
+                  </tr>
+                )
+              }
+              return (
+                <tr key={item.id} className="border-b border-gray-200">
+                  <td className="px-2 py-2 text-xs font-mono">{item.sku || '-'}</td>
+                  <td className="px-2 py-2 text-sm whitespace-pre-wrap">{item.description}</td>
+                  <td className="px-2 py-2 text-right text-sm">{formatCurrency(item.unit_price, (doc.currency || 'EUR') as 'EUR' | 'USD' | 'ARS')}</td>
+                  <td className="px-2 py-2 text-right text-sm">{item.quantity}</td>
+                  <td className="px-2 py-2 text-right text-sm">{item.discount_pct > 0 ? `${item.discount_pct}%` : '-'}</td>
+                  <td className="px-2 py-2 text-right text-sm font-semibold">{formatCurrency(item.subtotal, (doc.currency || 'EUR') as 'EUR' | 'USD' | 'ARS')}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+
+        {/* Totals for print */}
+        <div className="flex justify-end mt-4 pt-3 border-t-2 border-black">
+          <div className="w-64">
+            <div className="flex justify-between py-1 text-sm">
+              <span>Base imponible:</span>
+              <span className="font-semibold">{formatCurrency(totals.subtotal, (doc.currency || 'EUR') as 'EUR' | 'USD' | 'ARS')}</span>
+            </div>
+            <div className="flex justify-between py-1 text-sm">
+              <span>IVA ({doc.tax_rate ?? 21}%):</span>
+              <span>{formatCurrency(totals.taxAmount, (doc.currency || 'EUR') as 'EUR' | 'USD' | 'ARS')}</span>
+            </div>
+            <div className="flex justify-between py-1 text-base font-bold border-t border-black mt-1 pt-1">
+              <span>TOTAL:</span>
+              <span>{formatCurrency(totals.total, (doc.currency || 'EUR') as 'EUR' | 'USD' | 'ARS')}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Notes for print */}
+        {doc.notes && (
+          <div className="mt-6 pt-3 border-t border-gray-300">
+            <p className="text-xs font-bold uppercase tracking-wider mb-1">Observaciones</p>
+            <p className="text-sm whitespace-pre-wrap">{doc.notes}</p>
+          </div>
+        )}
+
+        {/* Payment terms / Incoterm / Validity for print */}
+        <div className="mt-4 pt-3 border-t border-gray-300 grid grid-cols-3 gap-4 text-sm">
+          {doc.payment_terms && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider mb-1">Condiciones de pago</p>
+              <p>{PAYMENT_TERMS.find(pt => pt.value === doc.payment_terms)?.label || doc.payment_terms}</p>
+            </div>
+          )}
+          {doc.incoterm && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider mb-1">Incoterm</p>
+              <p>{doc.incoterm}</p>
+            </div>
+          )}
+          {(doc.valid_until || doc.delivery_date) && (
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider mb-1">
+                {documentType === 'coti' ? 'Validez' : 'Fecha entrega'}
+              </p>
+              <p>{documentType === 'coti'
+                ? (doc.valid_until ? formatDate(doc.valid_until) : '-')
+                : (doc.delivery_date ? formatDate(doc.delivery_date) : '-')
+              }</p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* ====== TABS SECTION ====== */}
-      <div className="mt-4">
+      <div className="mt-4 print:hidden">
         {/* Tab buttons */}
         <div className="flex gap-1 p-1 bg-[#0F1218] rounded-lg border border-[#1E2330] mb-4 overflow-x-auto print:hidden">
           {[
@@ -2140,15 +2269,7 @@ export function DocumentForm({
         </div>
       </Modal>
 
-      {/* ====== PRINT STYLES ====== */}
-      <style jsx global>{`
-        @media print {
-          body { background: white !important; color: black !important; }
-          .print\\:hidden { display: none !important; }
-          .print\\:bg-white { background: white !important; }
-          .print\\:text-black { color: black !important; }
-        }
-      `}</style>
+      {/* Print styles are in globals.css */}
     </div>
   )
 }
