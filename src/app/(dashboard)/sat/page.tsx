@@ -42,7 +42,7 @@ const satTabs = [
 // INCIDENCIAS TAB (existing SAT tickets)
 // ═══════════════════════════════════════════════════════
 function IncidenciasTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const { addToast } = useToast()
   const [tickets, setTickets] = useState<Row[]>([])
@@ -73,7 +73,7 @@ function IncidenciasTab() {
     const { data } = await q
     setTickets(data || [])
     setLoading(false)
-  }, [statusFilter, priorityFilter, search])
+  }, [statusFilter, priorityFilter, search, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -226,7 +226,7 @@ function IncidenciasTab() {
 // ORDENES DE TRABAJO TAB
 // ═══════════════════════════════════════════════════════
 function OrdenesTrabajoTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const [tickets, setTickets] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
@@ -240,7 +240,7 @@ function OrdenesTrabajoTab() {
       setTickets(data || [])
       setLoading(false)
     })()
-  }, [])
+  }, [companyKey])
 
   return (
     <div className="space-y-4">
@@ -278,7 +278,7 @@ function OrdenesTrabajoTab() {
 // ACTIVOS/EQUIPOS TAB
 // ═══════════════════════════════════════════════════════
 function ActivosTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const [equipment, setEquipment] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
@@ -294,7 +294,7 @@ function ActivosTab() {
     const { data } = await q
     setEquipment(data || [])
     setLoading(false)
-  }, [search])
+  }, [search, companyKey])
 
   useEffect(() => { load() }, [load])
 

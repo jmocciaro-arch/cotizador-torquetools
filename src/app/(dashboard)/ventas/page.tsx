@@ -120,7 +120,7 @@ const COBRO_COLS: DataTableColumn[] = [
 // PRESUPUESTOS TAB
 // ===============================================================
 function PresupuestosTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
@@ -139,7 +139,7 @@ function PresupuestosTab() {
     const docRows = (docData || []).map(documentToTableRow)
     setRows([...localRows, ...docRows])
     setLoading(false)
-  }, [])
+  }, [companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -181,7 +181,7 @@ function PresupuestosTab() {
 // PEDIDOS TAB
 // ===============================================================
 function PedidosTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const { addToast } = useToast()
 
@@ -214,7 +214,7 @@ function PedidosTab() {
     const docRows = (docData || []).map(documentToTableRow)
     setRows([...localRows, ...docRows])
     setLoading(false)
-  }, [])
+  }, [companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -378,7 +378,7 @@ function PedidosTab() {
 // ALBARANES TAB
 // ===============================================================
 function AlbaranesTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
@@ -397,7 +397,7 @@ function AlbaranesTab() {
     const docRows = (docData || []).map(documentToTableRow)
     setRows([...localRows, ...docRows])
     setLoading(false)
-  }, [])
+  }, [companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -439,7 +439,7 @@ function AlbaranesTab() {
 // FACTURAS TAB
 // ===============================================================
 function FacturasTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
@@ -458,7 +458,7 @@ function FacturasTab() {
     const docRows = (docData || []).map(documentToTableRow)
     setRows([...localRows, ...docRows])
     setLoading(false)
-  }, [])
+  }, [companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -500,7 +500,7 @@ function FacturasTab() {
 // COBROS TAB
 // ===============================================================
 function CobrosTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const { addToast } = useToast()
   const [rows, setRows] = useState<Record<string, unknown>[]>([])

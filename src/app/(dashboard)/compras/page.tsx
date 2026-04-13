@@ -1131,7 +1131,7 @@ function ProveedoresTab() {
 // PEDIDOS COMPRA TAB
 // ===============================================================
 function PedidosCompraTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const { addToast } = useToast()
   const [orders, setOrders] = useState<Row[]>([])
@@ -1179,7 +1179,7 @@ function PedidosCompraTab() {
     }))
     setOrders([...localMapped, ...docMapped])
     setLoading(false)
-  }, [statusFilter, search])
+  }, [statusFilter, search, companyKey])
 
   useEffect(() => { load() }, [load])
 

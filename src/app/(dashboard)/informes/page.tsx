@@ -58,7 +58,7 @@ function getPeriodDates(period: string): { from: string; to: string } {
 // RESUMEN TAB — Overview con KPIs principales
 // ═══════════════════════════════════════════════════════
 function ResumenTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [period, setPeriod] = useState('year')
   const [data, setData] = useState<{ ventas: number; compras: number; cobrado: number; pagado: number; facturasPend: number; docs: number; clientes: number; productos: number }>({ ventas: 0, compras: 0, cobrado: 0, pagado: 0, facturasPend: 0, docs: 0, clientes: 0, productos: 0 })
   const [loading, setLoading] = useState(true)
@@ -97,7 +97,7 @@ function ResumenTab() {
       productos: productsRes.count || 0,
     })
     setLoading(false)
-  }, [period])
+  }, [period, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -147,7 +147,7 @@ function ResumenTab() {
 // RESULTADOS TAB — Ventas vs Gastos por Cliente/Empleado/Catalogo
 // ═══════════════════════════════════════════════════════
 function ResultadosTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [period, setPeriod] = useState('year')
   const [groupBy, setGroupBy] = useState<'cliente' | 'tipo'>('cliente')
   const [rows, setRows] = useState<Row[]>([])
@@ -184,7 +184,7 @@ function ResultadosTab() {
       setRows(Array.from(map.values()).sort((a, b) => b.total - a.total))
     }
     setLoading(false)
-  }, [period, groupBy])
+  }, [period, groupBy, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -216,7 +216,7 @@ function ResultadosTab() {
 // FACTURACION TAB — Por cliente, empleado, periodo
 // ═══════════════════════════════════════════════════════
 function FacturacionTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [period, setPeriod] = useState('year')
   const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
@@ -242,7 +242,7 @@ function FacturacionTab() {
     }
     setRows(Array.from(map.values()).sort((a, b) => b.facturado - a.facturado))
     setLoading(false)
-  }, [period])
+  }, [period, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -268,7 +268,7 @@ function FacturacionTab() {
 // TESORERIA TAB — Cobros vs Pagos, facturas pendientes
 // ═══════════════════════════════════════════════════════
 function TesoreriaTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [period, setPeriod] = useState('year')
   const [salesInvoices, setSalesInvoices] = useState<Row[]>([])
   const [purchaseInvoices, setPurchaseInvoices] = useState<Row[]>([])
@@ -298,7 +298,7 @@ function TesoreriaTab() {
       return { ref: (d.display_ref as string) || (d.system_code as string) || '-', proveedor: (client?.legal_name as string) || (client?.name as string) || '-', total: d.total, estado: d.status, fecha: d.created_at, tipo: 'compra' }
     }))
     setLoading(false)
-  }, [period])
+  }, [period, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -354,7 +354,7 @@ function TesoreriaTab() {
 // VENTAS TAB — Desglose por tipo documento
 // ═══════════════════════════════════════════════════════
 function VentasTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [period, setPeriod] = useState('year')
   const [stats, setStats] = useState<{ presupuestos: { count: number; total: number; abiertos: number }; pedidos: { count: number; total: number; abiertos: number }; albaranes: { count: number; total: number }; facturas: { count: number; total: number; cobradas: number; pendientes: number } }>({
     presupuestos: { count: 0, total: 0, abiertos: 0 }, pedidos: { count: 0, total: 0, abiertos: 0 },
@@ -383,7 +383,7 @@ function VentasTab() {
     }
     setStats(s)
     setLoading(false)
-  }, [period])
+  }, [period, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -421,7 +421,7 @@ function VentasTab() {
 // RENTABILIDAD TAB — Por producto y cliente
 // ═══════════════════════════════════════════════════════
 function RentabilidadTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [period, setPeriod] = useState('year')
   const [groupBy, setGroupBy] = useState<'producto' | 'cliente'>('producto')
   const [rows, setRows] = useState<Row[]>([])
@@ -484,7 +484,7 @@ function RentabilidadTab() {
       setRows(arr.sort((a, b) => b.venta - a.venta))
     }
     setLoading(false)
-  }, [period, groupBy])
+  }, [period, groupBy, companyKey])
 
   useEffect(() => { load() }, [load])
 

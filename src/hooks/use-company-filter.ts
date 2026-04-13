@@ -3,19 +3,22 @@
 import { useCompanyContext } from '@/lib/company-context'
 
 /**
- * Hook that returns the active company IDs for filtering queries.
+ * Hook for ABSOLUTE company filtering — like Odoo silos.
  *
- * Usage in components:
+ * When a company is selected, ONLY that company's data is visible.
+ * When multi-mode is active, selected companies are combined.
+ * If no company is selected (loading), a dummy impossible ID is used
+ * to prevent any data from leaking.
+ *
+ * Usage:
  * ```
- * const { companyIds, filterByCompany, isAllCompanies } = useCompanyFilter()
- *
- * // In queries:
- * let query = sb.from('tt_documents').select('*')
- * query = filterByCompany(query, 'company_id')
+ * const { filterByCompany } = useCompanyFilter()
+ * let q = sb.from('tt_documents').select('*')
+ * q = filterByCompany(q) // Applies absolute filter
  * ```
  */
 export function useCompanyFilter() {
-  const { activeCompanyId, activeCompanyIds, isMultiMode, isSuperAdmin, companies } = useCompanyContext()
+  const { activeCompanyId, activeCompanyIds, isMultiMode, companies } = useCompanyContext()
 
   // Get the list of company IDs to filter by
   const companyIds: string[] = isMultiMode
@@ -24,21 +27,32 @@ export function useCompanyFilter() {
       ? [activeCompanyId]
       : []
 
-  // Is "all companies" selected? (super admin with all companies)
-  const isAllCompanies = isSuperAdmin && isMultiMode && companyIds.length === companies.length
+  // NEVER skip the filter. If no company selected, use impossible UUID
+  // to guarantee zero results (prevents data leaking during loading)
+  const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
 
   /**
-   * Apply company filter to a Supabase query.
-   * If all companies selected (admin), no filter is applied.
-   * @param query - Supabase query builder
-   * @param column - Column name for company_id (default: 'company_id')
+   * Apply ABSOLUTE company filter to a Supabase query.
+   * This ALWAYS filters — there is no "show all" bypass.
+   * Multi-mode with all companies selected shows all, but still filters.
    */
   function filterByCompany<T>(query: T, column = 'company_id'): T {
-    if (isAllCompanies || companyIds.length === 0) return query // No filter
+    // Multi-mode: show all selected companies
+    if (isMultiMode && companyIds.length > 0) {
+      if (companyIds.length === companies.length) {
+        // All companies selected — use .in() with all IDs (still filters, just includes all)
+        return (query as unknown as { in: (col: string, vals: string[]) => T }).in(column, companyIds)
+      }
+      return (query as unknown as { in: (col: string, vals: string[]) => T }).in(column, companyIds)
+    }
+
+    // Single company mode
     if (companyIds.length === 1) {
       return (query as unknown as { eq: (col: string, val: string) => T }).eq(column, companyIds[0])
     }
-    return (query as unknown as { in: (col: string, vals: string[]) => T }).in(column, companyIds)
+
+    // No company selected (loading state or no access) — show nothing
+    return (query as unknown as { eq: (col: string, val: string) => T }).eq(column, IMPOSSIBLE_ID)
   }
 
   /**
@@ -46,11 +60,15 @@ export function useCompanyFilter() {
    */
   const defaultCompanyId = activeCompanyId || companyIds[0] || null
 
+  // companyKey changes whenever the active company changes — use as useEffect dependency
+  const companyKey = companyIds.join(',') || 'none'
+
   return {
     companyIds,
-    isAllCompanies,
     filterByCompany,
     defaultCompanyId,
     activeCompanyId,
+    companyKey,
+    isLoading: companyIds.length === 0,
   }
 }

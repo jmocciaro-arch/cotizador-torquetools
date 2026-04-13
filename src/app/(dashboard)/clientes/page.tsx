@@ -790,7 +790,7 @@ function InfoField({ label, value, mono }: { label: string; value: string | null
 // ═══════════════════════════════════════════════════════
 
 function ClientesTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const { addToast } = useToast()
   const [allClients, setAllClients] = useState<Client[]>([])
   const [loading, setLoading] = useState(true)
@@ -851,7 +851,7 @@ function ClientesTab() {
       addToast({ type: 'error', title: 'Error al cargar clientes' })
     }
     setLoading(false)
-  }, [addToast])
+  }, [addToast, companyKey])
 
   useEffect(() => { loadClients() }, [loadClients])
 
@@ -911,7 +911,7 @@ function ClientesTab() {
       map[cid].payments_received = map[cid].total_invoiced - map[cid].pending_collection
     }
     setClientMetrics(map)
-  }, [])
+  }, [companyKey])
 
   useEffect(() => { loadMetrics() }, [loadMetrics])
 
@@ -1313,7 +1313,7 @@ function ClientesTab() {
 // ═══════════════════════════════════════════════════════
 
 function PotencialesTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const { addToast } = useToast()
   const [leads, setLeads] = useState<Client[]>([])
@@ -1329,7 +1329,7 @@ function PotencialesTab() {
     const { data } = await q
     setLeads((data || []) as Client[])
     setLoading(false)
-  }, [search])
+  }, [search, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -1376,7 +1376,7 @@ function PotencialesTab() {
 // ═══════════════════════════════════════════════════════
 
 function ContactosTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const supabase = createClient()
   const [contacts, setContacts] = useState<(Client & { _companyName?: string })[]>([])
   const [dbContacts, setDbContacts] = useState<(ClientContact & { _companyName?: string })[]>([])
@@ -1435,7 +1435,7 @@ function ContactosTab() {
     }
 
     setLoading(false)
-  }, [search])
+  }, [search, companyKey])
 
   useEffect(() => { load() }, [load])
 
@@ -1505,12 +1505,12 @@ function ContactosTab() {
 // ═══════════════════════════════════════════════════════
 
 function FavoritosTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [favorites, setFavorites] = useState<GroupedCompany[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedCompany, setSelectedCompany] = useState<GroupedCompany | null>(null)
 
-  useEffect(() => { loadFavorites() }, [])
+  useEffect(() => { loadFavorites() }, [companyKey])
 
   async function loadFavorites() {
     const supabase = createClient()
@@ -1577,11 +1577,11 @@ function FavoritosTab() {
 // ═══════════════════════════════════════════════════════
 
 function RankingTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [clients, setClients] = useState<(Client & { rank: number })[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { loadRanking() }, [])
+  useEffect(() => { loadRanking() }, [companyKey])
 
   async function loadRanking() {
     const supabase = createClient()

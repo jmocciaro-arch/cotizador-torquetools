@@ -100,7 +100,7 @@ const crmTabs = [
 // PIPELINE TAB
 // ═══════════════════════════════════════════════════════
 function PipelineTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const { addToast } = useToast()
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
   const [loading, setLoading] = useState(true)
@@ -126,7 +126,7 @@ function PipelineTab() {
   const [editData, setEditData] = useState({ stage: '', probability: 0, notes: '', assigned_to: '', value: 0, expected_close_date: '', source: '', urgency: '', lost_reason: '' })
   const [savingEdit, setSavingEdit] = useState(false)
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => { loadData() }, [companyKey])
 
   async function loadData() {
     const supabase = createClient(); setLoading(true)
@@ -599,7 +599,7 @@ function ActividadesTab() {
 // INFORMES TAB
 // ═══════════════════════════════════════════════════════
 function InformesTab() {
-  const { filterByCompany } = useCompanyFilter()
+  const { filterByCompany, companyKey } = useCompanyFilter()
   const [stats, setStats] = useState<{ total: number; won: number; lost: number; pipelineValue: number; byStage: Array<{ stage: string; count: number; value: number }> }>({ total: 0, won: 0, lost: 0, pipelineValue: 0, byStage: [] })
   const [loading, setLoading] = useState(true)
 
@@ -621,7 +621,7 @@ function InformesTab() {
       setStats({ total: opps.length, won, lost, pipelineValue, byStage })
       setLoading(false)
     })()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-[#FF6600]" size={32} /></div>
 
