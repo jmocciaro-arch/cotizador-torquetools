@@ -12,6 +12,7 @@ import { mapStatus } from '@/lib/document-helpers'
 import { DocumentActions, type DocumentActionType } from './document-actions'
 import { SendDocumentModal } from './send-document-modal'
 import { useCompanyContext } from '@/lib/company-context'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import {
   ArrowLeft, Edit3, Save, Printer, Mail, MoreVertical,
   ChevronLeft, ChevronRight, Trash2, Copy, RefreshCw,
@@ -225,6 +226,7 @@ export function DocumentForm({
   const { addToast } = useToast()
   const supabase = createClient()
   const { activeCompany } = useCompanyContext()
+  const { filterByCompany } = useCompanyFilter()
 
   // Mode
   const [editMode, setEditMode] = useState(false)
@@ -561,17 +563,18 @@ export function DocumentForm({
     if (!clientSearch.trim()) { setClientResults([]); setShowClientDropdown(false); return }
     if (clientDebounceRef.current) clearTimeout(clientDebounceRef.current)
     clientDebounceRef.current = setTimeout(async () => {
-      const { data } = await supabase
-        .from('tt_clients')
+      const sb = createClient()
+      let q = sb.from('tt_clients')
         .select('id, name, legal_name, tax_id, email, country')
         .or(`name.ilike.%${clientSearch}%,legal_name.ilike.%${clientSearch}%,tax_id.ilike.%${clientSearch}%`)
         .eq('active', true)
-        .limit(8)
+      q = filterByCompany(q)
+      const { data } = await q.limit(8)
       setClientResults((data || []) as ClientData[])
       setShowClientDropdown(true)
     }, 300)
     return () => { if (clientDebounceRef.current) clearTimeout(clientDebounceRef.current) }
-  }, [clientSearch, supabase])
+  }, [clientSearch])
 
   // ---------------------------------------------------------------
   // PRODUCT SEARCH

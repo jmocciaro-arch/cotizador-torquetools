@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { TrendingUp } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
@@ -16,19 +17,23 @@ export function WidgetSalesChart() {
   const [data, setData] = useState<MonthData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
+        const sb = createClient()
         const now = new Date()
         const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1)
 
         // Load from both tt_documents and tt_quotes
-        const [docRes, localRes] = await Promise.all([
-          supabase.from('tt_documents').select('created_at, total').eq('type', 'coti').gte('created_at', sixMonthsAgo.toISOString()).order('created_at', { ascending: true }),
-          supabase.from('tt_quotes').select('created_at, total').gte('created_at', sixMonthsAgo.toISOString()).order('created_at', { ascending: true }),
-        ])
+        let docQ = sb.from('tt_documents').select('created_at, total').eq('type', 'coti').gte('created_at', sixMonthsAgo.toISOString()).order('created_at', { ascending: true })
+        docQ = filterByCompany(docQ)
+
+        let localQ = sb.from('tt_quotes').select('created_at, total').gte('created_at', sixMonthsAgo.toISOString()).order('created_at', { ascending: true })
+        localQ = filterByCompany(localQ)
+
+        const [docRes, localRes] = await Promise.all([docQ, localQ])
         if (docRes.error) throw docRes.error
         if (localRes.error) throw localRes.error
         const quotes = [...(docRes.data || []), ...(localRes.data || [])]
@@ -69,7 +74,7 @@ export function WidgetSalesChart() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

@@ -10,6 +10,7 @@ import { SearchBar } from '@/components/ui/search-bar'
 import { Modal } from '@/components/ui/modal'
 import { useToast } from '@/components/ui/toast'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { formatCurrency, INCOTERMS } from '@/lib/utils'
 import type { Company, Client } from '@/types'
 import { DocumentDetailLayout, type WorkflowStep, type Alert, type InternalNote } from '@/components/workflow/document-detail-layout'
@@ -79,6 +80,7 @@ type ViewMode = 'create' | 'list' | 'detail'
 
 export default function CotizadorPage() {
   const { addToast } = useToast()
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   // View state
   const [viewMode, setViewMode] = useState<ViewMode>('create')
@@ -177,13 +179,12 @@ export default function CotizadorPage() {
   }
 
   async function searchClients(query: string) {
-    const supabase = createClient()
-    const { data } = await supabase
-      .from('tt_clients')
-      .select('*')
+    const sb = createClient()
+    let q = sb.from('tt_clients').select('*')
       .or(`name.ilike.%${query}%,legal_name.ilike.%${query}%,tax_id.ilike.%${query}%,email.ilike.%${query}%`)
       .eq('active', true)
-      .limit(10)
+    q = filterByCompany(q)
+    const { data } = await q.limit(10)
     setClientResults((data || []) as Client[])
     setShowClientDropdown(true)
   }
@@ -243,21 +244,19 @@ export default function CotizadorPage() {
 
   async function loadSavedQuotes() {
     setLoadingQuotes(true)
-    const supabase = createClient()
-    // Load locally created quotes
-    const { data: localData } = await supabase
-      .from('tt_quotes')
+    const sb = createClient()
+    // Load locally created quotes (filtered by company)
+    let qLocal = sb.from('tt_quotes')
       .select('id, number, status, total, currency, created_at, subtotal, tax_amount, tax_rate, notes, internal_notes, incoterm, client_id, company_id, client:tt_clients(name, tax_id, country), company:tt_companies(name, country)')
-      .order('created_at', { ascending: false })
-      .limit(50)
+    qLocal = filterByCompany(qLocal)
+    const { data: localData } = await qLocal.order('created_at', { ascending: false }).limit(50)
 
-    // Load historical from tt_documents (with client JOIN)
-    const { data: docData } = await supabase
-      .from('tt_documents')
+    // Load historical from tt_documents (filtered by company)
+    let qDoc = sb.from('tt_documents')
       .select('id, display_ref, system_code, status, total, currency, created_at, subtotal, tax_amount, notes, metadata, client_id, client:tt_clients(id, name, legal_name, tax_id)')
-      .eq('type', 'coti')
-      .order('created_at', { ascending: false })
-      .limit(50)
+      .in('type', ['coti', 'presupuesto', 'quote'])
+    qDoc = filterByCompany(qDoc)
+    const { data: docData } = await qDoc.order('created_at', { ascending: false }).limit(50)
 
     const localQuotes = ((localData || []) as unknown as SavedQuote[]).map(q => ({
       ...q, _source: 'local' as string,

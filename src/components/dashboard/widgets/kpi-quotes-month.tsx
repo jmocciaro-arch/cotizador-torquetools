@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { formatCurrency } from '@/lib/utils'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
@@ -11,19 +12,23 @@ export function KpiQuotesMonth() {
   const [totalValue, setTotalValue] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
+        const sb = createClient()
         const now = new Date()
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
 
         // Count from tt_documents (StelOrder historical) + tt_quotes (local)
-        const [docRes, localRes] = await Promise.all([
-          supabase.from('tt_documents').select('total', { count: 'exact' }).eq('type', 'coti').gte('created_at', startOfMonth),
-          supabase.from('tt_quotes').select('total', { count: 'exact' }).gte('created_at', startOfMonth),
-        ])
+        let docQ = sb.from('tt_documents').select('total', { count: 'exact' }).eq('type', 'coti').gte('created_at', startOfMonth)
+        docQ = filterByCompany(docQ)
+
+        let localQ = sb.from('tt_quotes').select('total', { count: 'exact' }).gte('created_at', startOfMonth)
+        localQ = filterByCompany(localQ)
+
+        const [docRes, localRes] = await Promise.all([docQ, localQ])
         if (docRes.error) throw docRes.error
         if (localRes.error) throw localRes.error
         const totalCount = (docRes.count ?? 0) + (localRes.count ?? 0)
@@ -38,7 +43,7 @@ export function KpiQuotesMonth() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

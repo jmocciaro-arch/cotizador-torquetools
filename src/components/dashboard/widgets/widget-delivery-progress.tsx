@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Truck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { DocLink } from '@/components/ui/doc-link'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
@@ -18,19 +19,22 @@ export function WidgetDeliveryProgress() {
   const [deliveries, setDeliveries] = useState<DeliveryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
+        const sb = createClient()
         // Load pedidos from tt_documents (with client name via JOIN)
-        const { data: docData } = await supabase
+        let q = sb
           .from('tt_documents')
           .select('id, display_ref, system_code, total, status, metadata, client:tt_clients(name, legal_name)')
           .eq('type', 'pedido')
           .in('status', ['open', 'sent', 'accepted', 'draft'])
           .order('created_at', { ascending: false })
           .limit(8)
+        q = filterByCompany(q)
+        const { data: docData } = await q
 
         const docItems: DeliveryItem[] = (docData || []).map((d: Record<string, unknown>) => {
           const client = d.client as Record<string, unknown> | null
@@ -52,7 +56,7 @@ export function WidgetDeliveryProgress() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Target } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { formatCurrency } from '@/lib/utils'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
@@ -11,15 +12,15 @@ export function KpiPipeline() {
   const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
-        const { data, error: e } = await supabase
-          .from('tt_opportunities')
-          .select('expected_value, probability')
-          .neq('stage', 'perdido')
+        const sb = createClient()
+        let q = sb.from('tt_opportunities').select('expected_value, probability').neq('stage', 'perdido')
+        q = filterByCompany(q)
+        const { data, error: e } = await q
 
         if (e) throw e
         const ops = data || []
@@ -37,7 +38,7 @@ export function KpiPipeline() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

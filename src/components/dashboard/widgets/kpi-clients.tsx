@@ -3,20 +3,22 @@
 import { useState, useEffect } from 'react'
 import { Users } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
 export function KpiClients() {
   const [count, setCount] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
-        const { count: c, error: e } = await supabase
-          .from('tt_clients')
-          .select('*', { count: 'exact', head: true })
+        const sb = createClient()
+        let q = sb.from('tt_clients').select('*', { count: 'exact', head: true })
+        q = filterByCompany(q)
+        const { count: c, error: e } = await q
         if (e) throw e
         setCount(c ?? 0)
       } catch {
@@ -26,7 +28,7 @@ export function KpiClients() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

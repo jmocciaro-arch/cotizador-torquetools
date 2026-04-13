@@ -3,22 +3,27 @@
 import { useState, useEffect } from 'react'
 import { Truck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
 export function KpiPendingDelivery() {
   const [count, setCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
+        const sb = createClient()
         // Count from tt_documents (pedidos without delivery) + tt_sales_orders
-        const [docRes, localRes] = await Promise.all([
-          supabase.from('tt_documents').select('*', { count: 'exact', head: true }).eq('type', 'pedido').in('status', ['open', 'sent', 'accepted', 'draft']),
-          supabase.from('tt_sales_orders').select('*', { count: 'exact', head: true }).in('status', ['open', 'partially_delivered']),
-        ])
+        let docQ = sb.from('tt_documents').select('*', { count: 'exact', head: true }).eq('type', 'pedido').in('status', ['open', 'sent', 'accepted', 'draft'])
+        docQ = filterByCompany(docQ)
+
+        let localQ = sb.from('tt_sales_orders').select('*', { count: 'exact', head: true }).in('status', ['open', 'partially_delivered'])
+        localQ = filterByCompany(localQ)
+
+        const [docRes, localRes] = await Promise.all([docQ, localQ])
         if (docRes.error) throw docRes.error
         if (localRes.error) throw localRes.error
         setCount((docRes.count ?? 0) + (localRes.count ?? 0))
@@ -29,7 +34,7 @@ export function KpiPendingDelivery() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

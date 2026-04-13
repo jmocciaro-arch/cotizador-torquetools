@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { FileText } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { formatCurrency, formatRelative } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { DocLink } from '@/components/ui/doc-link'
@@ -32,16 +33,20 @@ export function WidgetRecentQuotes() {
   const [quotes, setQuotes] = useState<RecentQuote[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
+        const sb = createClient()
         // Load from both sources
-        const [localRes, docRes] = await Promise.all([
-          supabase.from('tt_quotes').select('id, number, total, currency, created_at, status, client:tt_clients(name)').order('created_at', { ascending: false }).limit(5),
-          supabase.from('tt_documents').select('id, display_ref, system_code, total, currency, created_at, status, metadata').eq('type', 'coti').order('created_at', { ascending: false }).limit(10),
-        ])
+        let localQ = sb.from('tt_quotes').select('id, number, total, currency, created_at, status, client:tt_clients(name)').order('created_at', { ascending: false }).limit(5)
+        localQ = filterByCompany(localQ)
+
+        let docQ = sb.from('tt_documents').select('id, display_ref, system_code, total, currency, created_at, status, metadata').eq('type', 'coti').order('created_at', { ascending: false }).limit(10)
+        docQ = filterByCompany(docQ)
+
+        const [localRes, docRes] = await Promise.all([localQ, docQ])
 
         if (localRes.error) throw localRes.error
         if (docRes.error) throw docRes.error
@@ -72,7 +77,7 @@ export function WidgetRecentQuotes() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

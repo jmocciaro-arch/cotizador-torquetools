@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { Banknote } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { formatCurrency } from '@/lib/utils'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
@@ -10,15 +11,19 @@ export function KpiPendingCollection() {
   const [value, setValue] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
-        // Pending collection from tt_documents (facturas not paid) + tt_invoices
+        const sb = createClient()
+        // Pending collection from tt_documents (filtered) + tt_invoices (no company_id)
+        let docQ = sb.from('tt_documents').select('total').in('type', ['factura']).in('status', ['sent', 'open', 'pending', 'draft'])
+        docQ = filterByCompany(docQ)
+
         const [docRes, localRes] = await Promise.all([
-          supabase.from('tt_documents').select('total').in('type', ['factura']).in('status', ['sent', 'open', 'pending', 'draft']),
-          supabase.from('tt_invoices').select('total').eq('type', 'sale').in('status', ['draft', 'pending', 'partial']),
+          docQ,
+          sb.from('tt_invoices').select('total').eq('type', 'sale').in('status', ['draft', 'pending', 'partial']),
         ])
         if (docRes.error) throw docRes.error
         if (localRes.error) throw localRes.error
@@ -32,7 +37,7 @@ export function KpiPendingCollection() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />

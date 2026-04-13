@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { BarChart3 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { CRM_STAGES, formatCurrency } from '@/lib/utils'
 import { WidgetSkeleton, WidgetError } from '../widget-wrapper'
 
@@ -17,14 +18,15 @@ export function WidgetPipelineChart() {
   const [data, setData] = useState<StageData[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const { filterByCompany, companyKey } = useCompanyFilter()
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
-        const { data: ops, error: e } = await supabase
-          .from('tt_opportunities')
-          .select('stage, value')
+        const sb = createClient()
+        let q = sb.from('tt_opportunities').select('stage, value')
+        q = filterByCompany(q)
+        const { data: ops, error: e } = await q
 
         if (e) throw e
 
@@ -52,7 +54,7 @@ export function WidgetPipelineChart() {
       }
     }
     load()
-  }, [])
+  }, [companyKey])
 
   if (loading) return <WidgetSkeleton />
   if (error) return <WidgetError />
