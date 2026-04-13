@@ -156,7 +156,7 @@ export async function quoteToOrder(
       company_id: companyId,
       client_id: quoteData.client_id || null,
       quote_id: source === 'local' ? quoteId : null,
-      so_number: orderNumber,
+      number: orderNumber,
       currency: (quoteData.currency as string) || 'EUR',
       status: 'confirmado',
       subtotal: (quoteData.subtotal as number) || 0,
@@ -170,15 +170,16 @@ export async function quoteToOrder(
   if (error || !order) throw error || new Error('Error creando pedido')
 
   // Copiar items
-  const soItems = quoteItems.map((item) => ({
-    so_id: order.id,
+  const soItems = quoteItems.map((item, idx) => ({
+    sales_order_id: order.id,
     product_id: item.product_id || null,
     description: (item.description as string) || '',
     sku: (item.sku as string) || '',
-    quantity: (item.quantity as number) || (item.units as number) || 0,
+    qty_ordered: (item.quantity as number) || (item.units as number) || 0,
     unit_price: (item.unit_price as number) || (item.item_base_price as number) || 0,
-    discount_percent: (item.discount_pct as number) || (item.discount_percent as number) || 0,
+    discount_pct: (item.discount_pct as number) || (item.discount_percent as number) || 0,
     subtotal: (item.subtotal as number) || (item.line_total as number) || 0,
+    sort_order: idx,
   }))
 
   if (soItems.length > 0) {
