@@ -1938,12 +1938,45 @@ function CalendarioPagosTab() {
   useEffect(() => {
     (async () => {
       setLoading(true)
-      const { data } = await supabase
+      const sb = createClient()
+      const { data } = await sb
         .from('tt_purchase_invoices')
         .select('*, supplier:tt_suppliers(id, name, legal_name)')
         .not('due_date', 'is', null)
         .order('due_date', { ascending: true })
-      setInvoices((data || []) as PurchaseInvoice[])
+
+      let result = (data || []) as PurchaseInvoice[]
+
+      // If no local invoices, fallback to tt_documents (StelOrder imported)
+      if (result.length === 0) {
+        const { data: docInvs } = await sb.from('tt_documents')
+          .select('id, display_ref, system_code, total, status, created_at, metadata, client:tt_clients(id, name, legal_name)')
+          .eq('type', 'factura_compra')
+          .order('created_at', { ascending: false })
+          .limit(50)
+
+        result = (docInvs || []).map((d: Record<string, unknown>) => {
+          const client = d.client as Record<string, unknown> | null
+          return {
+            id: d.id as string,
+            supplier_id: null,
+            supplier_invoice_number: (d.display_ref as string) || (d.system_code as string) || '',
+            supplier_invoice_date: (d.created_at as string)?.split('T')[0] || '',
+            subtotal: (d.total as number) || 0,
+            tax_rate: 21,
+            tax_amount: 0,
+            total: (d.total as number) || 0,
+            paid_amount: d.status === 'paid' ? (d.total as number) || 0 : 0,
+            due_date: (d.created_at as string)?.split('T')[0] || null,
+            status: (d.status as string) || 'pending',
+            notes: '',
+            created_at: d.created_at as string,
+            supplier: client ? { id: client.id as string, name: (client.legal_name as string) || (client.name as string) || 'Sin proveedor', legal_name: client.legal_name as string } : null,
+          } as unknown as PurchaseInvoice
+        })
+      }
+
+      setInvoices(result)
       setLoading(false)
     })()
   }, [])
