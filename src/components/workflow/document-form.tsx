@@ -885,10 +885,24 @@ export function DocumentForm({
   }
 
   // ---------------------------------------------------------------
-  // PRINT
+  // PRINT — with professional filename
   // ---------------------------------------------------------------
   const handlePrint = () => {
+    if (!doc) { window.print(); return }
+    const date = doc.created_at ? doc.created_at.split('T')[0] : new Date().toISOString().split('T')[0]
+    const ref = (doc.display_ref || doc.system_code || 'DOC').replace(/\s+/g, '-')
+    const companyName = (company?.name || 'Empresa').replace(/\s+/g, '_')
+    const clientStr = (client?.legal_name || client?.name || 'Cliente').replace(/\s+/g, '_').substring(0, 60)
+    const curr = (doc.currency || 'EUR').toUpperCase()
+    const amount = String((doc.total || 0).toFixed(2)).replace('.', ',')
+    const ocRef = (doc.metadata as Record<string, unknown>)?.client_reference as string || ''
+    let filename = `${date}-${ref}-${companyName}-${clientStr}-${curr}_${amount}`
+    if (ocRef) filename += `-${ocRef.replace(/\s+/g, '')}`
+
+    const originalTitle = window.document.title
+    window.document.title = filename
     window.print()
+    setTimeout(() => { window.document.title = originalTitle }, 1000)
   }
 
   // ---------------------------------------------------------------

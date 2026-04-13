@@ -207,8 +207,11 @@ body {
     margin: 15mm 10mm;
   }
 
-  /* Clean backgrounds for print */
+  /* Clean backgrounds for print — FORCE white on everything */
   * {
+    background-color: white !important;
+    color: black !important;
+    border-color: #ccc !important;
     box-shadow: none !important;
     text-shadow: none !important;
   }

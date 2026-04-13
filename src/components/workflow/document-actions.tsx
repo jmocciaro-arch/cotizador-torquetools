@@ -133,7 +133,24 @@ export function DocumentActions({
 
   const handleSend = () => setShowSendModal(true)
 
-  const handlePdf = () => window.print()
+  const handlePdf = () => {
+    // Build professional filename: 2026-04-12-COT-2026-0001-TorqueTools_SL-Cliente_Nombre-EUR_7005,90-OC12345
+    const date = new Date().toISOString().split('T')[0]
+    const ref = docNumber.replace(/\s+/g, '-')
+    const company = ((document.company_name as string) || (document.metadata as Row)?.company_name as string || 'Empresa').replace(/\s+/g, '_')
+    const client = (clientName || 'Cliente').replace(/\s+/g, '_').substring(0, 60)
+    const curr = ((document.currency as string) || 'EUR').toUpperCase()
+    const amount = String(total.toFixed(2)).replace('.', ',')
+    const ocRef = (document.metadata as Row)?.client_reference as string || ''
+    let filename = `${date}-${ref}-${company}-${client}-${curr}_${amount}`
+    if (ocRef) filename += `-${ocRef.replace(/\s+/g, '')}`
+
+    const originalTitle = document.title || window.document.title
+    window.document.title = filename
+    window.print()
+    // Restore after print dialog
+    setTimeout(() => { window.document.title = originalTitle as string }, 1000)
+  }
 
   const handleAccept = async () => {
     setLoading('accept')
