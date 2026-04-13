@@ -129,7 +129,7 @@ function PresupuestosTab() {
   const load = useCallback(async () => {
     setLoading(true)
     const sb = createClient()
-    let q = sb.from('tt_documents').select('*, client:tt_clients(id, name, legal_name, tax_id)').eq('type', 'coti')
+    let q = sb.from('tt_documents').select('*, client:tt_clients(id, name, legal_name, tax_id)').in('type', ['coti', 'presupuesto', 'quote'])
     q = filterByCompany(q)
     const [{ data: docData }, { data: localData }] = await Promise.all([
       q.order('created_at', { ascending: false }).range(0, 499),
@@ -204,7 +204,7 @@ function PedidosTab() {
   const load = useCallback(async () => {
     setLoading(true)
     const sb = createClient()
-    let q = sb.from('tt_documents').select('*, client:tt_clients(id, name, legal_name, tax_id)').eq('type', 'pedido')
+    let q = sb.from('tt_documents').select('*, client:tt_clients(id, name, legal_name, tax_id)').in('type', ['pedido', 'order', 'so'])
     q = filterByCompany(q)
     const [{ data: docData }, { data: localData }] = await Promise.all([
       q.order('created_at', { ascending: false }).range(0, 499),
@@ -387,7 +387,7 @@ function AlbaranesTab() {
   const load = useCallback(async () => {
     setLoading(true)
     const sb = createClient()
-    let q = sb.from('tt_documents').select('*, client:tt_clients(id, name, legal_name, tax_id)').eq('type', 'delivery_note')
+    let q = sb.from('tt_documents').select('*, client:tt_clients(id, name, legal_name, tax_id)').in('type', ['delivery_note', 'albaran', 'remito'])
     q = filterByCompany(q)
     const [{ data: docData }, { data: localData }] = await Promise.all([
       q.order('created_at', { ascending: false }).range(0, 499),
