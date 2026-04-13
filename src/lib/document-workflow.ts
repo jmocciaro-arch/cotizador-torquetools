@@ -141,16 +141,24 @@ export async function quoteToOrder(
 
   if (!quoteData) throw new Error('Cotizacion no encontrada')
 
+  // Get default company_id
+  let companyId = quoteData.company_id as string | null
+  if (!companyId) {
+    // Fallback: get first company
+    const { data: firstCo } = await supabase.from('tt_companies').select('id').limit(1).single()
+    companyId = firstCo?.id as string || null
+  }
+
   // Crear pedido en tt_sales_orders (tabla local)
   const { data: order, error } = await supabase
     .from('tt_sales_orders')
     .insert({
-      company_id: quoteData.company_id || null,
-      client_id: quoteData.client_id,
-      quote_id: quoteId,
-      doc_number: orderNumber,
+      company_id: companyId,
+      client_id: quoteData.client_id || null,
+      quote_id: source === 'local' ? quoteId : null,
+      so_number: orderNumber,
       currency: (quoteData.currency as string) || 'EUR',
-      status: 'open',
+      status: 'confirmado',
       subtotal: (quoteData.subtotal as number) || 0,
       tax_amount: (quoteData.tax_amount as number) || 0,
       total: (quoteData.total as number) || 0,
@@ -162,20 +170,15 @@ export async function quoteToOrder(
   if (error || !order) throw error || new Error('Error creando pedido')
 
   // Copiar items
-  const soItems = quoteItems.map((item, idx) => ({
-    sales_order_id: order.id,
+  const soItems = quoteItems.map((item) => ({
+    so_id: order.id,
     product_id: item.product_id || null,
     description: (item.description as string) || '',
     sku: (item.sku as string) || '',
     quantity: (item.quantity as number) || (item.units as number) || 0,
     unit_price: (item.unit_price as number) || (item.item_base_price as number) || 0,
-    discount_pct: (item.discount_pct as number) || (item.discount_percent as number) || 0,
-    line_total: (item.subtotal as number) || (item.line_total as number) || 0,
-    qty_ordered: (item.quantity as number) || (item.units as number) || 0,
-    qty_reserved: 0,
-    qty_delivered: 0,
-    qty_invoiced: 0,
-    sort_order: idx,
+    discount_percent: (item.discount_pct as number) || (item.discount_percent as number) || 0,
+    subtotal: (item.subtotal as number) || (item.line_total as number) || 0,
   }))
 
   if (soItems.length > 0) {

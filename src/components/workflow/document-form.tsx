@@ -63,6 +63,7 @@ interface DocumentData {
   tariff: string
   client_id: string
   company_id: string
+  client_reference: string
   metadata: Row
 }
 
@@ -320,6 +321,7 @@ export function DocumentForm({
             tariff: (docData.metadata as Row)?.tariff as string || '',
             client_id: docData.client_id || '',
             company_id: docData.company_id || '',
+            client_reference: ((docData.metadata as Row)?.client_reference as string) || '',
             metadata: (docData.metadata as Row) || {},
           })
 
@@ -475,6 +477,7 @@ export function DocumentForm({
             tariff: localDoc.tariff || '',
             client_id: localDoc.client_id || '',
             company_id: localDoc.company_id || '',
+            client_reference: '',
             metadata: {},
           })
 
@@ -612,6 +615,7 @@ export function DocumentForm({
           agent: editDoc.agent,
           tariff: editDoc.tariff,
           tax_rate: editDoc.tax_rate,
+          client_reference: editDoc.client_reference || null,
         }
 
         const newTotal = recalcTotal(editItems)
@@ -1290,6 +1294,22 @@ export function DocumentForm({
             ) : (
               <span className="text-sm text-[#F0F2F5]">
                 {PAYMENT_TERMS.find(pt => pt.value === doc.payment_terms)?.label || doc.payment_terms || '-'}
+              </span>
+            )}
+          </FieldRow>
+
+          {/* OC del cliente */}
+          <FieldRow label="OC del cliente" editMode={editMode}>
+            {editMode ? (
+              <input
+                value={editDoc.client_reference || (doc.metadata as Row)?.client_reference as string || ''}
+                onChange={(e) => setEditDoc({ ...editDoc, client_reference: e.target.value })}
+                placeholder="Nro. orden de compra del cliente"
+                className="h-9 w-full rounded-lg bg-[#0B0E13] border border-[#FF6600] px-3 text-sm text-[#F0F2F5] focus:outline-none placeholder:text-[#4B5563]"
+              />
+            ) : (
+              <span className="text-sm text-[#F0F2F5] font-mono">
+                {(doc.metadata as Row)?.client_reference as string || '-'}
               </span>
             )}
           </FieldRow>
