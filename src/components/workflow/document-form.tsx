@@ -671,13 +671,15 @@ export function DocumentForm({
           await supabase.from('tt_document_items').delete().eq('id', rid)
         }
 
-        // Log activity
-        await supabase.from('tt_activity_log').insert({
-          entity_type: 'document',
-          entity_id: documentId,
-          action: 'update',
-          details: 'Documento actualizado',
-        }).then(() => {})
+        // Log activity (non-blocking, ignore errors)
+        try {
+          await supabase.from('tt_activity_log').insert({
+            entity_type: 'document',
+            entity_id: documentId,
+            action: 'update',
+            detail: 'Documento actualizado',
+          })
+        } catch { /* ignore */ }
 
       } else {
         // Update local tables
@@ -1293,7 +1295,18 @@ export function DocumentForm({
                         key={c.id}
                         onClick={() => {
                           setClient(c)
-                          setEditDoc({ ...editDoc, client_id: c.id })
+                          // Auto IVA: España→España = 21%, España→otro país = 0%
+                          const clientCountry = (c.country || '').toUpperCase()
+                          const isExport = clientCountry && clientCountry !== 'ES'
+                          setEditDoc({
+                            ...editDoc,
+                            client_id: c.id,
+                            subject_iva: !isExport,
+                            tax_rate: isExport ? 0 : 21,
+                          })
+                          if (isExport) {
+                            addToast({ type: 'info', title: `Cliente de ${clientCountry} — IVA 0% (exportacion)` })
+                          }
                           setClientSearch('')
                           setShowClientDropdown(false)
                         }}
