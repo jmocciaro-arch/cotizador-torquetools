@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, Suspense, useEffect, useCallback } from 'react'
 import { Tabs } from '@/components/ui/tabs'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -133,6 +133,7 @@ export default function FinanzasPage() {
   ]
 
   return (
+    <Suspense fallback={<div className="p-6 text-[#6B7280]">Cargando...</div>}>
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold text-[#F0F2F5] flex items-center gap-2">
@@ -154,6 +155,7 @@ export default function FinanzasPage() {
         )}
       </Tabs>
     </div>
+    </Suspense>
   )
 }
 

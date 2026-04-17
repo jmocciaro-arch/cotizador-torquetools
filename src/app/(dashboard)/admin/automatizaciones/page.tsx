@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -800,19 +800,21 @@ function EmailTemplatesTab() {
 // ═══════════════════════════════════════════════════════
 export default function AutomatizacionesPage() {
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div>
-        <h1 className="text-2xl font-bold text-[#F0F2F5]">Automatizaciones</h1>
-        <p className="text-sm text-[#6B7280] mt-1">Gestiona reglas automaticas y plantillas de email</p>
+    <Suspense fallback={<div className="p-6 text-[#6B7280]">Cargando...</div>}>
+      <div className="space-y-6 animate-fade-in">
+        <div>
+          <h1 className="text-2xl font-bold text-[#F0F2F5]">Automatizaciones</h1>
+          <p className="text-sm text-[#6B7280] mt-1">Gestiona reglas automaticas y plantillas de email</p>
+        </div>
+        <Tabs tabs={pageTabs} defaultTab="automations">
+          {(activeTab) => (
+            <>
+              {activeTab === 'automations' && <AutomationsTab />}
+              {activeTab === 'templates' && <EmailTemplatesTab />}
+            </>
+          )}
+        </Tabs>
       </div>
-      <Tabs tabs={pageTabs} defaultTab="automations">
-        {(activeTab) => (
-          <>
-            {activeTab === 'automations' && <AutomationsTab />}
-            {activeTab === 'templates' && <EmailTemplatesTab />}
-          </>
-        )}
-      </Tabs>
-    </div>
+    </Suspense>
   )
 }
