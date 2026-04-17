@@ -145,6 +145,7 @@ const catalogoTabs = [
 // ===============================================================
 function ProductosTab() {
   const router = useRouter()
+  const { addToast } = useToast()
 
   // ---------- Core State ----------
   const [families, setFamilies] = useState<ProductFamily[]>([])
@@ -173,6 +174,23 @@ function ProductosTab() {
 
   // Product detail modal
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+
+  // Product form modal (create + edit)
+  const [showProductForm, setShowProductForm] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
+  const [productFormTab, setProductFormTab] = useState<'general' | 'precios' | 'tecnico' | 'imagenes' | 'specs'>('general')
+  const [productForm, setProductForm] = useState<Partial<Product>>({})
+  const [productSaving, setProductSaving] = useState(false)
+  const [brandSuggestions, setBrandSuggestions] = useState<string[]>([])
+  const [showBrandSuggestions, setShowBrandSuggestions] = useState(false)
+  const brandInputRef = useRef<HTMLInputElement>(null)
+
+  // Specs editor (key-value pairs)
+  const [specRows, setSpecRows] = useState<Array<{ key: string; value: string }>>([])
+
+  // Delete confirm
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(false)
+  const [deletingProduct, setDeletingProduct] = useState(false)
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
@@ -397,6 +415,184 @@ function ProductosTab() {
     }
   }, [])
 
+  // ---------- Open product form (create) ----------
+  const openCreateProduct = useCallback(() => {
+    setEditingProduct(null)
+    setProductForm({
+      sku: '',
+      name: '',
+      description: '',
+      brand: '',
+      product_type: 'product',
+      family_id: selectedFamily?.id || null,
+      category: '',
+      subcategory: '',
+      active: true,
+      price_eur: 0,
+      price_usd: null,
+      price_ars: null,
+      cost_eur: 0,
+      price_min: null,
+      encastre: '',
+      torque_min: null,
+      torque_max: null,
+      rpm: null,
+      weight_kg: null,
+      modelo: '',
+      serie: '',
+      origin: '',
+      image_url: '',
+      specs: {},
+    })
+    setSpecRows([])
+    setProductFormTab('general')
+    setShowProductForm(true)
+  }, [selectedFamily])
+
+  // ---------- Open product form (edit) ----------
+  const openEditProduct = useCallback((product: Product) => {
+    setEditingProduct(product)
+    setProductForm({ ...product })
+    const existingSpecs = product.specs || {}
+    setSpecRows(Object.entries(existingSpecs).map(([key, value]) => ({ key, value: String(value) })))
+    setProductFormTab('general')
+    setSelectedProduct(null)
+    setShowProductForm(true)
+  }, [])
+
+  // ---------- Load brand suggestions ----------
+  const loadBrandSuggestions = useCallback(async (query: string) => {
+    if (!query || query.length < 1) {
+      setBrandSuggestions([])
+      setShowBrandSuggestions(false)
+      return
+    }
+    const sb = createClient()
+    const { data } = await sb
+      .from('tt_products')
+      .select('brand')
+      .ilike('brand', `%${query}%`)
+      .limit(50)
+
+    if (data) {
+      const unique = [...new Set(data.map(d => d.brand as string).filter(Boolean))]
+      setBrandSuggestions(unique.slice(0, 8))
+      setShowBrandSuggestions(unique.length > 0)
+    }
+  }, [])
+
+  // ---------- Update product form field ----------
+  const updateProductField = useCallback((field: string, value: unknown) => {
+    setProductForm(prev => ({ ...prev, [field]: value }))
+  }, [])
+
+  // ---------- Save product (create or update) ----------
+  const saveProduct = useCallback(async () => {
+    if (!productForm.sku?.trim()) {
+      addToast({ type: 'warning', title: 'El SKU es obligatorio' })
+      return
+    }
+    if (!productForm.name?.trim()) {
+      addToast({ type: 'warning', title: 'El nombre es obligatorio' })
+      return
+    }
+
+    setProductSaving(true)
+    const sb = createClient()
+
+    // Build specs from specRows
+    const specs: Record<string, string> = {}
+    for (const row of specRows) {
+      if (row.key.trim()) {
+        specs[row.key.trim()] = row.value.trim()
+      }
+    }
+
+    const payload = {
+      sku: productForm.sku!.trim(),
+      name: productForm.name!.trim(),
+      description: productForm.description?.trim() || null,
+      brand: productForm.brand?.trim() || '',
+      product_type: productForm.product_type || 'product',
+      family_id: productForm.family_id || null,
+      category: productForm.category?.trim() || null,
+      subcategory: productForm.subcategory?.trim() || null,
+      active: productForm.active ?? true,
+      price_eur: productForm.price_eur || 0,
+      price_usd: productForm.price_usd || null,
+      price_ars: productForm.price_ars || null,
+      cost_eur: productForm.cost_eur || 0,
+      price_min: productForm.price_min || null,
+      encastre: productForm.encastre?.trim() || null,
+      torque_min: productForm.torque_min || null,
+      torque_max: productForm.torque_max || null,
+      rpm: productForm.rpm || null,
+      weight_kg: productForm.weight_kg || null,
+      modelo: productForm.modelo?.trim() || null,
+      serie: productForm.serie?.trim() || null,
+      origin: productForm.origin?.trim() || null,
+      image_url: productForm.image_url?.trim() || null,
+      specs: Object.keys(specs).length > 0 ? specs : null,
+    }
+
+    let error
+    if (editingProduct) {
+      const res = await sb
+        .from('tt_products')
+        .update(payload)
+        .eq('id', editingProduct.id)
+      error = res.error
+    } else {
+      const res = await sb
+        .from('tt_products')
+        .insert(payload)
+      error = res.error
+    }
+
+    setProductSaving(false)
+
+    if (error) {
+      addToast({ type: 'error', title: 'Error guardando producto', message: error.message })
+      return
+    }
+
+    addToast({ type: 'success', title: editingProduct ? 'Producto actualizado' : 'Producto creado' })
+    setShowProductForm(false)
+    setEditingProduct(null)
+
+    // Reload
+    if (selectedFamily) {
+      loadProducts(selectedFamily, page, sortBy, activeFilters, rangeFilters)
+    }
+    loadFamilies()
+  }, [productForm, specRows, editingProduct, selectedFamily, page, sortBy, activeFilters, rangeFilters, addToast, loadProducts, loadFamilies])
+
+  // ---------- Soft delete product ----------
+  const softDeleteProduct = useCallback(async (product: Product) => {
+    setDeletingProduct(true)
+    const sb = createClient()
+    const { error } = await sb
+      .from('tt_products')
+      .update({ active: false })
+      .eq('id', product.id)
+
+    setDeletingProduct(false)
+    setDeleteConfirmProduct(false)
+
+    if (error) {
+      addToast({ type: 'error', title: 'Error eliminando producto', message: error.message })
+      return
+    }
+
+    addToast({ type: 'success', title: 'Producto desactivado', message: product.sku })
+    setSelectedProduct(null)
+
+    if (selectedFamily) {
+      loadProducts(selectedFamily, page, sortBy, activeFilters, rangeFilters)
+    }
+    loadFamilies()
+  }, [selectedFamily, page, sortBy, activeFilters, rangeFilters, addToast, loadProducts, loadFamilies])
+
   // ---------- Get table columns for current family ----------
   const getColumns = useCallback(() => {
     if (!selectedFamily) return FAMILY_COLUMNS['default'] || ['image', 'sku', 'name', 'brand', 'category', 'price', 'cotizar']
@@ -419,6 +615,66 @@ function ProductosTab() {
   // ============================================================
   return (
     <div className="space-y-6">
+
+      {/* ======== ACTION BUTTONS ======== */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Button variant="primary" size="sm" onClick={openCreateProduct}>
+          <Plus size={14} /> Nuevo Producto
+        </Button>
+        <ImportButton
+          targetTable="tt_products"
+          fields={[
+            { key: 'sku', label: 'SKU', required: true },
+            { key: 'name', label: 'Nombre', required: true },
+            { key: 'brand', label: 'Marca' },
+            { key: 'description', label: 'Descripcion' },
+            { key: 'category', label: 'Categoria' },
+            { key: 'subcategory', label: 'Subcategoria' },
+            { key: 'price_eur', label: 'Precio EUR', type: 'number' },
+            { key: 'cost_eur', label: 'Costo EUR', type: 'number' },
+            { key: 'price_usd', label: 'Precio USD', type: 'number' },
+            { key: 'price_ars', label: 'Precio ARS', type: 'number' },
+            { key: 'price_min', label: 'Precio Minimo', type: 'number' },
+            { key: 'encastre', label: 'Encastre' },
+            { key: 'torque_min', label: 'Torque Min', type: 'number' },
+            { key: 'torque_max', label: 'Torque Max', type: 'number' },
+            { key: 'rpm', label: 'RPM', type: 'number' },
+            { key: 'weight_kg', label: 'Peso (kg)', type: 'number' },
+            { key: 'product_type', label: 'Tipo' },
+            { key: 'modelo', label: 'Modelo' },
+            { key: 'serie', label: 'Serie' },
+            { key: 'origin', label: 'Origen' },
+            { key: 'image_url', label: 'URL Imagen' },
+            { key: 'active', label: 'Activo', type: 'boolean' },
+          ]}
+          onComplete={() => {
+            if (selectedFamily) {
+              loadProducts(selectedFamily, page, sortBy, activeFilters, rangeFilters)
+            }
+            loadFamilies()
+          }}
+          label="Importar"
+        />
+        <ExportButton
+          data={products as unknown as Record<string, unknown>[]}
+          filename="productos_catalogo"
+          targetTable="tt_products"
+          columns={[
+            { key: 'sku', label: 'SKU' },
+            { key: 'name', label: 'Nombre' },
+            { key: 'brand', label: 'Marca' },
+            { key: 'category', label: 'Categoria' },
+            { key: 'price_eur', label: 'Precio EUR' },
+            { key: 'cost_eur', label: 'Costo EUR' },
+            { key: 'price_usd', label: 'Precio USD' },
+            { key: 'torque_min', label: 'Torque Min' },
+            { key: 'torque_max', label: 'Torque Max' },
+            { key: 'rpm', label: 'RPM' },
+            { key: 'encastre', label: 'Encastre' },
+            { key: 'weight_kg', label: 'Peso (kg)' },
+          ]}
+        />
+      </div>
 
       {/* ======== SMART SEARCH BAR ======== */}
       <div ref={searchContainerRef} className="relative">
@@ -973,9 +1229,36 @@ function ProductosTab() {
       )}
 
       {/* ======== PRODUCT DETAIL MODAL ======== */}
-      <Modal isOpen={!!selectedProduct} onClose={() => setSelectedProduct(null)} title={selectedProduct?.name || ''} size="xl">
+      <Modal isOpen={!!selectedProduct} onClose={() => { setSelectedProduct(null); setDeleteConfirmProduct(false) }} title={selectedProduct?.name || ''} size="xl">
         {selectedProduct && (
           <div className="space-y-6">
+            {/* Edit / Delete buttons at top */}
+            <div className="flex items-center gap-2 justify-end -mt-2">
+              <Button variant="secondary" size="sm" onClick={() => openEditProduct(selectedProduct)}>
+                <Edit3 size={14} /> Editar
+              </Button>
+              {!deleteConfirmProduct ? (
+                <Button variant="danger" size="sm" onClick={() => setDeleteConfirmProduct(true)}>
+                  <Trash2 size={14} /> Eliminar
+                </Button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-red-400">Confirmar eliminacion?</span>
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    loading={deletingProduct}
+                    onClick={() => softDeleteProduct(selectedProduct)}
+                  >
+                    Si, desactivar
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setDeleteConfirmProduct(false)}>
+                    No
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-6">
               {/* Image */}
               <div className="w-full sm:w-72 aspect-square rounded-xl bg-[#0A0D12] border border-[#1E2330] flex items-center justify-center shrink-0 overflow-hidden">
@@ -1099,6 +1382,436 @@ function ProductosTab() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ======== PRODUCT FORM MODAL (Create / Edit) ======== */}
+      <Modal
+        isOpen={showProductForm}
+        onClose={() => { setShowProductForm(false); setEditingProduct(null) }}
+        title={editingProduct ? `Editar: ${editingProduct.sku}` : 'Nuevo Producto'}
+        size="xl"
+      >
+        <div className="space-y-5">
+          {/* Tab navigation */}
+          <div className="flex gap-1 bg-[#0A0D12] rounded-xl p-1 border border-[#1E2330]">
+            {([
+              { id: 'general' as const, label: 'General' },
+              { id: 'precios' as const, label: 'Precios' },
+              { id: 'tecnico' as const, label: 'Tecnico' },
+              { id: 'imagenes' as const, label: 'Imagenes' },
+              { id: 'specs' as const, label: 'Specs' },
+            ]).map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setProductFormTab(tab.id)}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                  productFormTab === tab.id
+                    ? 'bg-[#FF6600] text-white shadow-lg shadow-orange-500/20'
+                    : 'text-[#6B7280] hover:text-[#F0F2F5] hover:bg-[#1E2330]'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ─── TAB: General ─── */}
+          {productFormTab === 'general' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="SKU *"
+                  value={productForm.sku || ''}
+                  onChange={(e) => updateProductField('sku', e.target.value)}
+                  placeholder="Ej: ASM-18-L-SET"
+                />
+                <Input
+                  label="Nombre *"
+                  value={productForm.name || ''}
+                  onChange={(e) => updateProductField('name', e.target.value)}
+                  placeholder="Ej: Atornillador Fein ASM 18 L Set"
+                />
+              </div>
+
+              <div className="w-full">
+                <label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">Descripcion</label>
+                <textarea
+                  value={productForm.description || ''}
+                  onChange={(e) => updateProductField('description', e.target.value)}
+                  placeholder="Descripcion del producto..."
+                  rows={3}
+                  className="w-full rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 py-2 text-sm text-[#F0F2F5] placeholder:text-[#4B5563] focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Brand with autocomplete */}
+                <div className="w-full relative">
+                  <label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">Marca</label>
+                  <input
+                    ref={brandInputRef}
+                    type="text"
+                    value={productForm.brand || ''}
+                    onChange={(e) => {
+                      updateProductField('brand', e.target.value)
+                      loadBrandSuggestions(e.target.value)
+                    }}
+                    onFocus={() => { if (brandSuggestions.length > 0) setShowBrandSuggestions(true) }}
+                    onBlur={() => setTimeout(() => setShowBrandSuggestions(false), 200)}
+                    placeholder="Ej: FEIN, Tohnichi, Stahlwille"
+                    className="w-full h-10 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 text-sm text-[#F0F2F5] placeholder:text-[#4B5563] focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
+                  />
+                  {showBrandSuggestions && brandSuggestions.length > 0 && (
+                    <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-[#141820] border border-[#1E2330] rounded-lg shadow-xl max-h-40 overflow-y-auto">
+                      {brandSuggestions.map((brand) => (
+                        <button
+                          key={brand}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            updateProductField('brand', brand)
+                            setShowBrandSuggestions(false)
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm text-[#F0F2F5] hover:bg-[#1E2330] transition-colors"
+                        >
+                          {brand}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="w-full">
+                  <label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">Tipo de producto</label>
+                  <select
+                    value={productForm.product_type || 'product'}
+                    onChange={(e) => updateProductField('product_type', e.target.value)}
+                    className="w-full h-10 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 text-sm text-[#F0F2F5] focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all appearance-none"
+                  >
+                    <option value="product">Producto</option>
+                    <option value="service">Servicio</option>
+                    <option value="expense">Gasto</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="w-full">
+                  <label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">Familia</label>
+                  <select
+                    value={productForm.family_id || ''}
+                    onChange={(e) => updateProductField('family_id', e.target.value || null)}
+                    className="w-full h-10 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 text-sm text-[#F0F2F5] focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all appearance-none"
+                  >
+                    <option value="">Sin familia</option>
+                    {families.map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <Input
+                  label="Categoria"
+                  value={productForm.category || ''}
+                  onChange={(e) => updateProductField('category', e.target.value)}
+                  placeholder="Ej: Herramienta electrica"
+                />
+                <Input
+                  label="Subcategoria"
+                  value={productForm.subcategory || ''}
+                  onChange={(e) => updateProductField('subcategory', e.target.value)}
+                  placeholder="Ej: Atornilladores"
+                />
+              </div>
+
+              {/* Active toggle */}
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-[#0A0D12] border border-[#1E2330]">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <div
+                    className={`relative w-10 h-5 rounded-full transition-colors ${productForm.active ? 'bg-emerald-500' : 'bg-[#2A3040]'}`}
+                    onClick={() => updateProductField('active', !productForm.active)}
+                  >
+                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${productForm.active ? 'left-5.5 translate-x-0.5' : 'left-0.5'}`} />
+                  </div>
+                  <span className="text-sm text-[#F0F2F5]">
+                    {productForm.active ? 'Producto activo' : 'Producto inactivo'}
+                  </span>
+                </label>
+              </div>
+            </div>
+          )}
+
+          {/* ─── TAB: Precios ─── */}
+          {productFormTab === 'precios' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Input
+                  label="Precio EUR"
+                  type="number"
+                  value={String(productForm.price_eur || '')}
+                  onChange={(e) => updateProductField('price_eur', parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                />
+                <Input
+                  label="Precio USD"
+                  type="number"
+                  value={String(productForm.price_usd ?? '')}
+                  onChange={(e) => updateProductField('price_usd', e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0.00"
+                />
+                <Input
+                  label="Precio ARS"
+                  type="number"
+                  value={String(productForm.price_ars ?? '')}
+                  onChange={(e) => updateProductField('price_ars', e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="Costo EUR"
+                  type="number"
+                  value={String(productForm.cost_eur || '')}
+                  onChange={(e) => updateProductField('cost_eur', parseFloat(e.target.value) || 0)}
+                  placeholder="0.00"
+                />
+                <Input
+                  label="Precio Minimo de Venta"
+                  type="number"
+                  value={String(productForm.price_min ?? '')}
+                  onChange={(e) => updateProductField('price_min', e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0.00"
+                />
+              </div>
+
+              {/* Margin display */}
+              {(productForm.price_eur || 0) > 0 && (productForm.cost_eur || 0) > 0 && (
+                <div className="p-4 rounded-xl bg-[#0A0D12] border border-[#1E2330] space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-[#6B7280]">Analisis de Margen</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-emerald-400">
+                        {(((productForm.price_eur! - productForm.cost_eur!) / productForm.price_eur!) * 100).toFixed(1)}%
+                      </p>
+                      <p className="text-[10px] text-[#6B7280] mt-1">Margen sobre PVP</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-[#FF6600]">
+                        {formatCurrency(productForm.price_eur! - productForm.cost_eur!, 'EUR')}
+                      </p>
+                      <p className="text-[10px] text-[#6B7280] mt-1">Beneficio unitario</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-blue-400">
+                        {(((productForm.price_eur! - productForm.cost_eur!) / productForm.cost_eur!) * 100).toFixed(1)}%
+                      </p>
+                      <p className="text-[10px] text-[#6B7280] mt-1">Markup sobre costo</p>
+                    </div>
+                  </div>
+                  {productForm.price_min && productForm.price_min > 0 && (
+                    <div className="pt-3 border-t border-[#1E2330] flex items-center justify-between">
+                      <span className="text-xs text-[#6B7280]">Margen con precio minimo:</span>
+                      <span className={`text-sm font-bold ${
+                        ((productForm.price_min - productForm.cost_eur!) / productForm.price_min * 100) > 0
+                          ? 'text-yellow-400'
+                          : 'text-red-400'
+                      }`}>
+                        {(((productForm.price_min - productForm.cost_eur!) / productForm.price_min) * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── TAB: Tecnico ─── */}
+          {productFormTab === 'tecnico' && (
+            <div className="space-y-4">
+              <Input
+                label="Encastre"
+                value={productForm.encastre || ''}
+                onChange={(e) => updateProductField('encastre', e.target.value)}
+                placeholder='Ej: 1/2", 3/8", 1/4"'
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="Torque Min (Nm)"
+                  type="number"
+                  value={String(productForm.torque_min ?? '')}
+                  onChange={(e) => updateProductField('torque_min', e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0"
+                />
+                <Input
+                  label="Torque Max (Nm)"
+                  type="number"
+                  value={String(productForm.torque_max ?? '')}
+                  onChange={(e) => updateProductField('torque_max', e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Input
+                  label="RPM"
+                  type="number"
+                  value={String(productForm.rpm ?? '')}
+                  onChange={(e) => updateProductField('rpm', e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0"
+                />
+                <Input
+                  label="Peso (kg)"
+                  type="number"
+                  value={String(productForm.weight_kg ?? '')}
+                  onChange={(e) => updateProductField('weight_kg', e.target.value ? parseFloat(e.target.value) : null)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Input
+                  label="Modelo"
+                  value={productForm.modelo || ''}
+                  onChange={(e) => updateProductField('modelo', e.target.value)}
+                  placeholder="Numero de modelo"
+                />
+                <Input
+                  label="Serie"
+                  value={productForm.serie || ''}
+                  onChange={(e) => updateProductField('serie', e.target.value)}
+                  placeholder="Serie del producto"
+                />
+                <Input
+                  label="Origen"
+                  value={productForm.origin || ''}
+                  onChange={(e) => updateProductField('origin', e.target.value)}
+                  placeholder="Ej: Alemania, Japon"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* ─── TAB: Imagenes ─── */}
+          {productFormTab === 'imagenes' && (
+            <div className="space-y-4">
+              <Input
+                label="URL de imagen"
+                value={productForm.image_url || ''}
+                onChange={(e) => updateProductField('image_url', e.target.value)}
+                placeholder="https://example.com/product-image.jpg"
+              />
+              {productForm.image_url && (
+                <div className="rounded-xl bg-[#0A0D12] border border-[#1E2330] p-6 flex items-center justify-center">
+                  <div className="w-64 h-64 rounded-lg bg-[#141820] border border-[#1E2330] flex items-center justify-center overflow-hidden">
+                    <img
+                      src={productForm.image_url}
+                      alt="Preview"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-contain p-4"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none'
+                        ;(e.target as HTMLImageElement).parentElement!.innerHTML = '<p class="text-xs text-red-400">Error cargando imagen</p>'
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {!productForm.image_url && (
+                <div className="rounded-xl bg-[#0A0D12] border-2 border-dashed border-[#2A3040] p-12 flex flex-col items-center justify-center text-[#4B5563]">
+                  <Package size={48} className="mb-3" />
+                  <p className="text-sm">Ingresa una URL para ver la vista previa</p>
+                  <p className="text-[10px] mt-1">Proximamente: subida directa de archivos</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── TAB: Specs (JSONB key-value pairs) ─── */}
+          {productFormTab === 'specs' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-semibold text-[#F0F2F5]">Especificaciones adicionales</h4>
+                  <p className="text-xs text-[#6B7280] mt-0.5">Pares clave-valor que se guardan en el campo specs (JSONB)</p>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setSpecRows(prev => [...prev, { key: '', value: '' }])}
+                >
+                  <Plus size={14} /> Agregar campo
+                </Button>
+              </div>
+
+              {specRows.length === 0 ? (
+                <div className="rounded-xl bg-[#0A0D12] border-2 border-dashed border-[#2A3040] p-8 flex flex-col items-center justify-center text-[#4B5563]">
+                  <FileSpreadsheet size={32} className="mb-2" />
+                  <p className="text-sm">Sin especificaciones adicionales</p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => setSpecRows([{ key: '', value: '' }])}
+                  >
+                    <Plus size={14} /> Agregar primera spec
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {specRows.map((row, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={row.key}
+                        onChange={(e) => {
+                          const updated = [...specRows]
+                          updated[idx] = { ...updated[idx], key: e.target.value }
+                          setSpecRows(updated)
+                        }}
+                        placeholder="Clave (ej: voltaje)"
+                        className="flex-1 h-9 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 text-sm text-[#F0F2F5] placeholder:text-[#4B5563] focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
+                      />
+                      <input
+                        type="text"
+                        value={row.value}
+                        onChange={(e) => {
+                          const updated = [...specRows]
+                          updated[idx] = { ...updated[idx], value: e.target.value }
+                          setSpecRows(updated)
+                        }}
+                        placeholder="Valor (ej: 18V)"
+                        className="flex-1 h-9 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 text-sm text-[#F0F2F5] placeholder:text-[#4B5563] focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all"
+                      />
+                      <button
+                        onClick={() => setSpecRows(prev => prev.filter((_, i) => i !== idx))}
+                        className="p-2 rounded-lg hover:bg-red-500/10 text-[#6B7280] hover:text-red-400 transition-colors shrink-0"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ─── Footer: Save / Cancel ─── */}
+          <div className="flex items-center justify-between pt-4 border-t border-[#1E2330]">
+            <p className="text-[10px] text-[#4B5563]">
+              {editingProduct ? `ID: ${editingProduct.id}` : 'Nuevo producto'}
+            </p>
+            <div className="flex gap-3">
+              <Button variant="secondary" onClick={() => { setShowProductForm(false); setEditingProduct(null) }}>
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                onClick={saveProduct}
+                loading={productSaving}
+                disabled={productSaving}
+              >
+                {editingProduct ? 'Guardar cambios' : 'Crear producto'}
+              </Button>
+            </div>
+          </div>
+        </div>
       </Modal>
     </div>
   )
