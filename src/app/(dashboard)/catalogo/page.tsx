@@ -24,6 +24,7 @@ import {
 import { useToast } from '@/components/ui/toast'
 import { useCompanyContext } from '@/lib/company-context'
 import { Input } from '@/components/ui/input'
+import { parseCSV, readFileAsText } from '@/lib/csv-parser'
 
 const PAGE_SIZE = 50
 
@@ -192,6 +193,15 @@ function ProductosTab() {
   const [deleteConfirmProduct, setDeleteConfirmProduct] = useState(false)
   const [deletingProduct, setDeletingProduct] = useState(false)
 
+  // WooCommerce import
+  const [showWooImport, setShowWooImport] = useState(false)
+  const [wooFile, setWooFile] = useState<File | null>(null)
+  const [wooParsedRows, setWooParsedRows] = useState<Array<Record<string, string>>>([])
+  const [wooPreview, setWooPreview] = useState<{ total: number; categories: string[]; brands: string[] } | null>(null)
+  const [wooImporting, setWooImporting] = useState(false)
+  const [wooProgress, setWooProgress] = useState('')
+  const wooFileRef = useRef<HTMLInputElement>(null)
+
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
   // ---------- Load families on mount ----------
@@ -206,20 +216,21 @@ function ProductosTab() {
       .order('sort_order', { ascending: true })
 
     if (familyData && familyData.length > 0) {
-      // Get product counts per family
-      const sb2 = createClient()
-      const { data: countData } = await sb2
-        .from('tt_products')
-        .select('family_id')
-        .eq('active', true)
-        .not('family_id', 'is', null)
+      // Get exact product counts per family using individual count queries
+      const countPromises = (familyData as ProductFamily[]).map(async (f) => {
+        const sb2 = createClient()
+        const { count } = await sb2
+          .from('tt_products')
+          .select('*', { count: 'exact', head: true })
+          .eq('family_id', f.id)
+          .eq('active', true)
+        return { id: f.id, count: count || 0 }
+      })
 
+      const counts = await Promise.all(countPromises)
       const countMap = new Map<string, number>()
-      if (countData) {
-        for (const row of countData) {
-          const fid = row.family_id as string
-          countMap.set(fid, (countMap.get(fid) || 0) + 1)
-        }
+      for (const c of counts) {
+        countMap.set(c.id, c.count)
       }
 
       const fams = (familyData as ProductFamily[]).map(f => ({
@@ -593,6 +604,256 @@ function ProductosTab() {
     loadFamilies()
   }, [selectedFamily, page, sortBy, activeFilters, rangeFilters, addToast, loadProducts, loadFamilies])
 
+  // ---------- WooCommerce CSV Parse ----------
+  const parseWooCSV = useCallback(async (file: File) => {
+    try {
+      const text = await readFileAsText(file)
+      const parsed = parseCSV(text)
+      if (!parsed.headers.length || !parsed.rows.length) {
+        addToast({ type: 'error', title: 'CSV vacio o formato invalido' })
+        return
+      }
+
+      // Build array of objects from headers + rows
+      const rows: Array<Record<string, string>> = parsed.rows.map(row => {
+        const obj: Record<string, string> = {}
+        parsed.headers.forEach((h, i) => {
+          obj[h.trim()] = (row[i] || '').trim()
+        })
+        return obj
+      }).filter(r => r['SKU']?.trim()) // Only rows with SKU
+
+      if (rows.length === 0) {
+        addToast({ type: 'error', title: 'No se encontraron productos con SKU en el CSV' })
+        return
+      }
+
+      // Build preview stats
+      const catSet = new Set<string>()
+      const brandSet = new Set<string>()
+
+      for (const row of rows) {
+        // Parse categories like "BALANCEADORES > NO GRAVITY"
+        const cats = row['Categorías'] || row['Categorias'] || row['Categories'] || ''
+        if (cats) {
+          const mainCat = cats.split(',')[0]?.split('>')[0]?.trim()
+          if (mainCat) catSet.add(mainCat)
+        }
+
+        // Brand from "Marcas" column or from attributes
+        let brand = row['Marcas'] || row['Brands'] || ''
+        if (!brand) {
+          // Search through attribute columns for MARCA
+          for (let i = 1; i <= 38; i++) {
+            const attrName = row[`Nombre del atributo ${i}`] || ''
+            if (attrName.toUpperCase() === 'MARCA') {
+              brand = row[`Valor(es) del atributo ${i}`] || ''
+              break
+            }
+          }
+        }
+        if (brand) brandSet.add(brand.trim())
+      }
+
+      setWooParsedRows(rows)
+      setWooPreview({
+        total: rows.length,
+        categories: Array.from(catSet).sort(),
+        brands: Array.from(brandSet).sort(),
+      })
+    } catch (err) {
+      addToast({ type: 'error', title: 'Error leyendo CSV', message: String(err) })
+    }
+  }, [addToast])
+
+  // ---------- WooCommerce CSV Import (upsert) ----------
+  const importWooCSV = useCallback(async () => {
+    if (wooParsedRows.length === 0) return
+    setWooImporting(true)
+    setWooProgress('Preparando importacion...')
+
+    try {
+      const sb = createClient()
+
+      // Load existing families to map category -> family_id
+      const sb2 = createClient()
+      const { data: existingFamilies } = await sb2
+        .from('tt_product_families')
+        .select('id, name, slug')
+        .eq('active', true)
+
+      const familyMap = new Map<string, string>()
+      if (existingFamilies) {
+        for (const f of existingFamilies) {
+          familyMap.set((f.name as string).toLowerCase(), f.id as string)
+          familyMap.set((f.slug as string).toLowerCase(), f.id as string)
+        }
+      }
+
+      // Process rows into product payloads
+      const products: Array<Record<string, unknown>> = []
+      const newFamilyNames = new Set<string>()
+
+      for (const row of wooParsedRows) {
+        const sku = (row['SKU'] || '').trim()
+        if (!sku) continue
+
+        const name = row['Nombre'] || row['Name'] || ''
+        const description = row['Descripción corta'] || row['Descripcion corta'] || row['Short description'] || ''
+        const priceStr = row['Precio normal'] || row['Regular price'] || '0'
+        const price_eur = parseFloat(priceStr.replace(',', '.')) || 0
+        const weightStr = row['Peso (kg)'] || row['Weight (kg)'] || ''
+        const weight_kg = weightStr ? (parseFloat(weightStr.replace(',', '.')) || null) : null
+        const imagesStr = row['Imágenes'] || row['Imagenes'] || row['Images'] || ''
+        const image_url = imagesStr.split(',')[0]?.trim() || null
+
+        // Parse categories
+        const catStr = row['Categorías'] || row['Categorias'] || row['Categories'] || ''
+        let category: string | null = null
+        let subcategory: string | null = null
+        let family_id: string | null = null
+
+        if (catStr) {
+          const firstCatPath = catStr.split(',')[0]?.trim() || ''
+          const catParts = firstCatPath.split('>').map(p => p.trim())
+          category = catParts[0] || null
+          subcategory = catParts[1] || null
+
+          if (category) {
+            const catLower = category.toLowerCase()
+            if (familyMap.has(catLower)) {
+              family_id = familyMap.get(catLower)!
+            } else {
+              newFamilyNames.add(category)
+            }
+          }
+        }
+
+        // Brand
+        let brand = row['Marcas'] || row['Brands'] || ''
+        if (!brand) {
+          for (let i = 1; i <= 38; i++) {
+            const attrName = row[`Nombre del atributo ${i}`] || ''
+            if (attrName.toUpperCase() === 'MARCA') {
+              brand = row[`Valor(es) del atributo ${i}`] || ''
+              break
+            }
+          }
+        }
+
+        // Build specs from attributes
+        const specs: Record<string, string> = {}
+        for (let i = 1; i <= 38; i++) {
+          const attrName = row[`Nombre del atributo ${i}`] || ''
+          const attrValue = row[`Valor(es) del atributo ${i}`] || ''
+          if (attrName && attrValue && attrName.toUpperCase() !== 'MARCA') {
+            specs[attrName.trim()] = attrValue.trim()
+          }
+        }
+
+        // Tags
+        const tags = row['Etiquetas'] || row['Tags'] || ''
+        if (tags) {
+          specs['tags'] = tags
+        }
+
+        products.push({
+          sku,
+          name,
+          description: description || null,
+          brand: brand.trim(),
+          price_eur,
+          weight_kg,
+          image_url,
+          category,
+          subcategory,
+          family_id,
+          specs: Object.keys(specs).length > 0 ? specs : null,
+          active: true,
+          product_type: 'product',
+        })
+      }
+
+      // Auto-create new families if needed
+      if (newFamilyNames.size > 0) {
+        setWooProgress(`Creando ${newFamilyNames.size} familias nuevas...`)
+        const sb3 = createClient()
+        const newFamilies = Array.from(newFamilyNames).map((name, idx) => ({
+          name,
+          slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
+          active: true,
+          sort_order: 100 + idx,
+        }))
+
+        const { data: insertedFamilies, error: famError } = await sb3
+          .from('tt_product_families')
+          .upsert(newFamilies, { onConflict: 'slug' })
+          .select('id, name, slug')
+
+        if (!famError && insertedFamilies) {
+          for (const f of insertedFamilies) {
+            familyMap.set((f.name as string).toLowerCase(), f.id as string)
+            familyMap.set((f.slug as string).toLowerCase(), f.id as string)
+          }
+          // Re-map family_id for products that needed new families
+          for (const prod of products) {
+            if (!prod.family_id && prod.category) {
+              const catLower = (prod.category as string).toLowerCase()
+              if (familyMap.has(catLower)) {
+                prod.family_id = familyMap.get(catLower)!
+              }
+            }
+          }
+        }
+      }
+
+      // Upsert products in batches of 100
+      const BATCH_SIZE = 100
+      let inserted = 0
+      let errors = 0
+
+      for (let i = 0; i < products.length; i += BATCH_SIZE) {
+        const batch = products.slice(i, i + BATCH_SIZE)
+        setWooProgress(`Importando ${i + 1}-${Math.min(i + BATCH_SIZE, products.length)} de ${products.length}...`)
+
+        const sb4 = createClient()
+        const { error } = await sb4
+          .from('tt_products')
+          .upsert(batch, { onConflict: 'sku' })
+
+        if (error) {
+          errors += batch.length
+          console.error('WooCommerce import batch error:', error)
+        } else {
+          inserted += batch.length
+        }
+      }
+
+      setWooImporting(false)
+      setWooProgress('')
+      setShowWooImport(false)
+      setWooFile(null)
+      setWooParsedRows([])
+      setWooPreview(null)
+
+      addToast({
+        type: errors > 0 ? 'warning' : 'success',
+        title: `Importacion completada: ${inserted} productos`,
+        message: errors > 0 ? `${errors} filas con errores` : undefined,
+      })
+
+      // Reload everything
+      loadFamilies()
+      if (selectedFamily) {
+        loadProducts(selectedFamily, page, sortBy, activeFilters, rangeFilters)
+      }
+    } catch (err) {
+      setWooImporting(false)
+      setWooProgress('')
+      addToast({ type: 'error', title: 'Error en importacion', message: String(err) })
+    }
+  }, [wooParsedRows, addToast, loadFamilies, selectedFamily, page, sortBy, activeFilters, rangeFilters, loadProducts])
+
   // ---------- Get table columns for current family ----------
   const getColumns = useCallback(() => {
     if (!selectedFamily) return FAMILY_COLUMNS['default'] || ['image', 'sku', 'name', 'brand', 'category', 'price', 'cotizar']
@@ -655,6 +916,13 @@ function ProductosTab() {
           }}
           label="Importar"
         />
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowWooImport(true)}
+        >
+          <Upload size={14} /> Importar WooCommerce
+        </Button>
         <ExportButton
           data={products as unknown as Record<string, unknown>[]}
           filename="productos_catalogo"
@@ -768,7 +1036,7 @@ function ProductosTab() {
                       {family.name}
                     </h3>
                     <span className="text-xs text-[#6B7280]">
-                      {family.product_count || 0} productos
+                      {(family.product_count || 0).toLocaleString('es-AR')} productos
                     </span>
                     {family.description && (
                       <p className="text-[10px] text-[#4B5563] text-center line-clamp-2 mt-1">
@@ -801,7 +1069,7 @@ function ProductosTab() {
               <div>
                 <h2 className="text-xl font-bold text-[#F0F2F5]">{selectedFamily.name}</h2>
                 <p className="text-xs text-[#6B7280]">
-                  {productsLoading ? 'Cargando...' : `${totalCount} productos`}
+                  {productsLoading ? 'Cargando...' : `${totalCount.toLocaleString('es-AR')} productos`}
                 </p>
               </div>
             </div>
@@ -1190,7 +1458,7 @@ function ProductosTab() {
           )}
 
           {/* Pagination */}
-          {!productsLoading && totalCount > PAGE_SIZE && (
+          {!productsLoading && totalCount > 0 && (
             <div className="flex items-center justify-between pt-4 border-t border-[#1E2330]">
               <button
                 onClick={() => changePage(page - 1)}
@@ -1204,12 +1472,15 @@ function ProductosTab() {
                 <ChevronLeft size={16} /> Anterior
               </button>
 
-              <div className="flex items-center gap-2 text-sm text-[#6B7280]">
+              <div className="flex flex-col items-center gap-0.5 text-sm text-[#6B7280]">
                 <span>
-                  Pagina <strong className="text-[#F0F2F5]">{page}</strong> de <strong className="text-[#F0F2F5]">{totalPages}</strong>
+                  Mostrando <strong className="text-[#F0F2F5]">{((page - 1) * PAGE_SIZE) + 1}</strong>-<strong className="text-[#F0F2F5]">{Math.min(page * PAGE_SIZE, totalCount)}</strong> de <strong className="text-[#FF6600]">{totalCount.toLocaleString('es-AR')}</strong> productos
                 </span>
-                <span className="text-[#4B5563]">&middot;</span>
-                <span>{totalCount.toLocaleString('es-AR')} productos</span>
+                {totalPages > 1 && (
+                  <span className="text-xs text-[#4B5563]">
+                    Pagina {page} de {totalPages}
+                  </span>
+                )}
               </div>
 
               <button
@@ -1811,6 +2082,152 @@ function ProductosTab() {
               </Button>
             </div>
           </div>
+        </div>
+      </Modal>
+
+      {/* ======== WOOCOMMERCE IMPORT MODAL ======== */}
+      <Modal
+        isOpen={showWooImport}
+        onClose={() => {
+          if (!wooImporting) {
+            setShowWooImport(false)
+            setWooFile(null)
+            setWooParsedRows([])
+            setWooPreview(null)
+          }
+        }}
+        title="Importar desde WooCommerce CSV"
+        size="xl"
+      >
+        <div className="space-y-5">
+          {/* Step 1: Select file */}
+          <div className="space-y-3">
+            <p className="text-sm text-[#9CA3AF]">
+              Subi un CSV exportado de WooCommerce. Se mapean automaticamente las columnas en espanol:
+              SKU, Nombre, Descripcion corta, Precio normal, Categorias, Imagenes, Peso, Marcas y Atributos 1-38.
+            </p>
+
+            <div
+              onClick={() => wooFileRef.current?.click()}
+              className="rounded-xl border-2 border-dashed border-[#2A3040] hover:border-[#FF6600]/40 bg-[#0A0D12] p-8 flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-[#0F1218]"
+            >
+              <Upload size={36} className="text-[#4B5563] mb-3" />
+              <p className="text-sm text-[#6B7280]">
+                {wooFile ? wooFile.name : 'Click para seleccionar CSV de WooCommerce'}
+              </p>
+              {wooFile && (
+                <p className="text-[10px] text-[#4B5563] mt-1">
+                  {(wooFile.size / 1024).toFixed(0)} KB
+                </p>
+              )}
+            </div>
+            <input
+              ref={wooFileRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0]
+                if (file) {
+                  setWooFile(file)
+                  await parseWooCSV(file)
+                }
+                e.target.value = ''
+              }}
+            />
+          </div>
+
+          {/* Step 2: Preview */}
+          {wooPreview && (
+            <div className="space-y-4">
+              <div className="rounded-xl bg-[#141820] border border-[#1E2330] p-5 space-y-4">
+                <h4 className="text-sm font-bold text-[#FF6600]">Preview de importacion</h4>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center p-3 rounded-lg bg-[#0A0D12] border border-[#1E2330]">
+                    <p className="text-2xl font-bold text-[#FF6600]">{wooPreview.total.toLocaleString('es-AR')}</p>
+                    <p className="text-[10px] text-[#6B7280] mt-1">Productos</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-[#0A0D12] border border-[#1E2330]">
+                    <p className="text-2xl font-bold text-blue-400">{wooPreview.categories.length}</p>
+                    <p className="text-[10px] text-[#6B7280] mt-1">Categorias</p>
+                  </div>
+                  <div className="text-center p-3 rounded-lg bg-[#0A0D12] border border-[#1E2330]">
+                    <p className="text-2xl font-bold text-emerald-400">{wooPreview.brands.length}</p>
+                    <p className="text-[10px] text-[#6B7280] mt-1">Marcas</p>
+                  </div>
+                </div>
+
+                {wooPreview.categories.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">Categorias detectadas</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {wooPreview.categories.map(cat => (
+                        <Badge key={cat} variant="default" size="sm">{cat}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {wooPreview.brands.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">Marcas detectadas</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {wooPreview.brands.map(brand => (
+                        <Badge key={brand} variant="info" size="sm">{brand}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sample rows */}
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280] mb-2">Primeros 5 productos</p>
+                  <div className="space-y-1.5">
+                    {wooParsedRows.slice(0, 5).map((row, idx) => (
+                      <div key={idx} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[#0A0D12] border border-[#1E2330] text-xs">
+                        <span className="font-mono text-[#FF6600] shrink-0">{row['SKU']}</span>
+                        <span className="text-[#F0F2F5] truncate flex-1">{row['Nombre'] || row['Name'] || '-'}</span>
+                        <span className="text-[#9CA3AF] shrink-0">{row['Precio normal'] || row['Regular price'] || '-'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress */}
+              {wooImporting && wooProgress && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[#FF6600]/10 border border-[#FF6600]/30">
+                  <Loader2 size={16} className="animate-spin text-[#FF6600]" />
+                  <span className="text-sm text-[#FF6600]">{wooProgress}</span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex justify-end gap-3 pt-2 border-t border-[#1E2330]">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setShowWooImport(false)
+                    setWooFile(null)
+                    setWooParsedRows([])
+                    setWooPreview(null)
+                  }}
+                  disabled={wooImporting}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={importWooCSV}
+                  loading={wooImporting}
+                  disabled={wooImporting}
+                >
+                  Importar {wooPreview.total.toLocaleString('es-AR')} productos
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>
