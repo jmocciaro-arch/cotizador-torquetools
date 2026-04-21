@@ -162,7 +162,50 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
       const isSuper = roles.includes('super_admin')
       setIsSuperAdmin(isSuper)
 
-      // Get user's company access with company details
+      // Super admin: saltea tt_user_companies y trae todas las empresas
+      // (RLS de tt_companies permite ver todas a super_admin/admin).
+      if (isSuper) {
+        const { data: allCompanies, error: allErr } = await supabase
+          .from('tt_companies')
+          .select('id, name, country, currency, company_type')
+          .order('name')
+
+        if (allErr) {
+          console.error('[CompanyContext] Error trayendo empresas (super_admin):', allErr)
+        }
+
+        if (allCompanies && allCompanies.length > 0) {
+          const displays: CompanyDisplay[] = allCompanies.map((c, idx) => ({
+            id: c.id,
+            name: c.name,
+            country: c.country || 'ES',
+            currency: c.currency || 'EUR',
+            flag: getCountryFlag(c.country || 'ES'),
+            company_type: (c.company_type || 'internal') as CompanyDisplay['company_type'],
+            is_default: idx === 0,
+            can_sell: true,
+            can_buy: true,
+          }))
+          setCompanies(displays)
+          const storedId = getStoredCompanyId()
+          const activeId = storedId && displays.some(c => c.id === storedId) ? storedId : displays[0].id
+          setActiveCompanyIdState(activeId)
+          storeCompanyId(activeId)
+
+          // Restore multi-mode
+          const storedMulti = getStoredMultiIds()
+          const storedMultiMode = getStoredMultiMode()
+          if (storedMultiMode) {
+            setIsMultiMode(true)
+            const validMultiIds = storedMulti.filter(id => displays.some(c => c.id === id))
+            setActiveCompanyIdsState(validMultiIds.length > 0 ? validMultiIds : displays.map(c => c.id))
+          }
+          setLoading(false)
+          return
+        }
+      }
+
+      // Usuario no-admin: filtra por tt_user_companies
       const { data: userCompanies } = await supabase
         .from('tt_user_companies')
         .select(`
@@ -177,28 +220,35 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
         .eq('user_id', ttUser.id)
 
       if (!userCompanies || userCompanies.length === 0) {
-        // Fallback: if no user_companies rows, use the user's company_id
-        const { data: fallbackCompany } = await supabase
+        // Fallback: sin filas en tt_user_companies. Pedimos tt_companies directo
+        // y dejamos que RLS decida qué ve el usuario (super_admin ve todas).
+        console.warn('[CompanyContext] Usuario sin filas en tt_user_companies. Fallback a tt_companies (via RLS).')
+        const { data: allCompanies, error: allErr } = await supabase
           .from('tt_companies')
           .select('id, name, country, currency, company_type')
-          .eq('id', ttUser.id)
-          .single()
+          .order('name')
 
-        if (fallbackCompany) {
-          const display: CompanyDisplay = {
-            id: fallbackCompany.id,
-            name: fallbackCompany.name,
-            country: fallbackCompany.country,
-            currency: fallbackCompany.currency,
-            flag: getCountryFlag(fallbackCompany.country),
-            company_type: (fallbackCompany.company_type || 'internal') as CompanyDisplay['company_type'],
-            is_default: true,
+        if (allErr) {
+          console.error('[CompanyContext] Error en fallback tt_companies:', allErr)
+        }
+
+        if (allCompanies && allCompanies.length > 0) {
+          const displays: CompanyDisplay[] = allCompanies.map((c, idx) => ({
+            id: c.id,
+            name: c.name,
+            country: c.country || 'ES',
+            currency: c.currency || 'EUR',
+            flag: getCountryFlag(c.country || 'ES'),
+            company_type: (c.company_type || 'internal') as CompanyDisplay['company_type'],
+            is_default: idx === 0,
             can_sell: true,
             can_buy: true,
-          }
-          setCompanies([display])
-          setActiveCompanyIdState(display.id)
-          storeCompanyId(display.id)
+          }))
+          setCompanies(displays)
+          const storedId = getStoredCompanyId()
+          const activeId = storedId && displays.some(c => c.id === storedId) ? storedId : displays[0].id
+          setActiveCompanyIdState(activeId)
+          storeCompanyId(activeId)
         }
         setLoading(false)
         return
@@ -244,8 +294,8 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
         const validMultiIds = storedMulti.filter(id => displayCompanies.some(c => c.id === id))
         setActiveCompanyIdsState(validMultiIds.length > 0 ? validMultiIds : displayCompanies.map(c => c.id))
       }
-    } catch {
-      // Silently handle errors
+    } catch (err) {
+      console.error('[CompanyContext] Error cargando empresas:', err)
     } finally {
       setLoading(false)
     }
