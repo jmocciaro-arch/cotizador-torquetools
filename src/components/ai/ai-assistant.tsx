@@ -91,14 +91,13 @@ export function AIAssistant() {
 
   return (
     <>
-      {/* Botón flotante */}
+      {/* Botón flotante — levantado sobre el bottom nav en mobile */}
       {!open && (
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed z-50 shadow-xl transition-transform hover:scale-110"
+          className="fixed z-50 shadow-xl transition-transform hover:scale-110 right-4 lg:right-6 bottom-24 lg:bottom-6"
           style={{
-            bottom: 24, right: 24,
             width: 56, height: 56, borderRadius: '50%',
             background: 'linear-gradient(135deg, #f97316, #ef4444)',
             color: 'white',
@@ -111,13 +110,12 @@ export function AIAssistant() {
         </button>
       )}
 
-      {/* Ventana de chat */}
+      {/* Ventana de chat — también levantada en mobile para no chocar con bottom nav */}
       {open && (
         <div
-          className="fixed z-50 flex flex-col shadow-2xl"
+          className="fixed z-50 flex flex-col shadow-2xl right-4 lg:right-6 bottom-24 lg:bottom-6"
           style={{
-            bottom: 24, right: 24,
-            width: 420, height: 600, maxHeight: 'calc(100vh - 48px)', maxWidth: 'calc(100vw - 48px)',
+            width: 420, height: 600, maxHeight: 'calc(100vh - 120px)', maxWidth: 'calc(100vw - 32px)',
             background: '#0F1218', border: '1px solid #2A3040', borderRadius: 16,
             overflow: 'hidden',
           }}
