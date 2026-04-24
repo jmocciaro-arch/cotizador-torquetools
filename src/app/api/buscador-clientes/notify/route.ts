@@ -3,7 +3,12 @@ import { Resend } from 'resend'
 
 export const runtime = 'nodejs'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy init — evita que el build falle si RESEND_API_KEY no esta seteada
+// (antes: const resend = new Resend(process.env.RESEND_API_KEY) se ejecutaba
+//  al evaluar el modulo y reventaba "Collecting page data").
+function getResend(): Resend {
+  return new Resend(process.env.RESEND_API_KEY)
+}
 
 // CORS: permitir requests desde el buscador público de Speedrill
 const CORS_HEADERS = {
@@ -171,6 +176,7 @@ export async function POST(req: NextRequest) {
 `
 
   try {
+    const resend = getResend()
     const { data, error } = await resend.emails.send({
       from: 'Speedrill Buscador <noreply@speedrill.com.ar>',
       to: ['info@torquetools.es'],
