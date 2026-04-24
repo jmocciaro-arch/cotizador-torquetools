@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/sequences/process",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 9 * * *"
     },
     {
       "path": "/api/ai/daily-summary?cron=1",
@@ -22,7 +22,7 @@
     },
     {
       "path": "/api/cron/check-emails",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 11 * * *"
     }
   ]
 }
