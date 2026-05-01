@@ -17,15 +17,15 @@ import { createClient as createServiceClient } from '@supabase/supabase-js'
 // ================================================================
 export const CLAUDE_PRICING: Record<string, { input: number; cache_write: number; cache_read: number; output: number }> = {
   // Haiku 4.5: la opción recomendada para extracción estructurada de documentos
-  'claude-haiku-4-5-20250929':  { input: 1.00,  cache_write: 1.25, cache_read: 0.10, output: 5.00 },
-  // Sonnet 4.5: más potente pero 3x más caro
-  'claude-sonnet-4-5-20250929': { input: 3.00,  cache_write: 3.75, cache_read: 0.30, output: 15.00 },
-  // Opus 4: el más caro, reservar para tareas de razonamiento complejo
-  'claude-opus-4-20250514':     { input: 15.00, cache_write: 18.75, cache_read: 1.50, output: 75.00 },
+  'claude-haiku-4-5-20251001': { input: 1.00,  cache_write: 1.25,  cache_read: 0.10, output: 5.00 },
+  // Sonnet 4.6: más potente, 3x más caro que Haiku
+  'claude-sonnet-4-6':         { input: 3.00,  cache_write: 3.75,  cache_read: 0.30, output: 15.00 },
+  // Opus 4.7: el más caro, reservar para tareas de razonamiento complejo
+  'claude-opus-4-7':            { input: 15.00, cache_write: 18.75, cache_read: 1.50, output: 75.00 },
 }
 
 // Modelo default (barato y suficiente para OC parsing)
-export const DEFAULT_MODEL = 'claude-haiku-4-5-20250929'
+export const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'
 
 // ================================================================
 // CACHE — por hash SHA256 del input
@@ -269,8 +269,6 @@ export async function callClaude(params: ClaudeCallParams): Promise<ClaudeCallRe
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
-        // Habilitar prompt caching beta si se usa
-        ...(params.cacheSystemPrompt ? { 'anthropic-beta': 'prompt-caching-2024-07-31' } : {}),
       },
       body: JSON.stringify({
         model,
