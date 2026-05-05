@@ -30,6 +30,11 @@ import { Input } from '@/components/ui/input'
 import { parseCSV, readFileAsText } from '@/lib/csv-parser'
 import { ProductPricesTab, type CompanyPriceRow } from '@/components/catalogo/product-prices-tab'
 import { DynamicAttributeInput } from '@/components/catalogo/dynamic-attribute-input'
+import { ProductBulkActionsBar } from '@/components/catalogo/product-bulk-actions-bar'
+import { DynamicFacetFilters } from '@/components/catalogo/dynamic-facet-filters'
+import { ProductSavedViews, type SavedView } from '@/components/catalogo/product-saved-views'
+import { ImportJobsHistory } from '@/components/catalogo/import-jobs-history'
+import { ImportTemplatesManager } from '@/components/catalogo/import-templates-manager'
 import { useCatalogPresets } from '@/hooks/use-catalog-presets'
 
 const PAGE_SIZE = 50
@@ -37,6 +42,8 @@ const PAGE_SIZE = 50
 // -------------------------------------------------------
 // Types
 // -------------------------------------------------------
+type LifecycleStatus = 'borrador' | 'activo' | 'descatalogado' | 'obsoleto'
+
 interface Product {
   id: string
   sku: string
@@ -66,6 +73,33 @@ interface Product {
   family_id: string | null
   price_min: number | null
   search_text: string | null
+  // v48: multi-código + ciclo de vida
+  ean: string | null
+  manufacturer_code: string | null
+  supplier_code: string | null
+  barcode: string | null
+  lifecycle_status: LifecycleStatus | null
+}
+
+const LIFECYCLE_OPTIONS: Array<{ value: LifecycleStatus; label: string; variant: 'default' | 'success' | 'warning' | 'danger' }> = [
+  { value: 'borrador',      label: 'Borrador',      variant: 'default' },
+  { value: 'activo',        label: 'Activo',        variant: 'success' },
+  { value: 'descatalogado', label: 'Descatalogado', variant: 'warning' },
+  { value: 'obsoleto',      label: 'Obsoleto',      variant: 'danger' },
+]
+
+const LIFECYCLE_VARIANT: Record<LifecycleStatus, 'default' | 'success' | 'warning' | 'danger'> = {
+  borrador:      'default',
+  activo:        'success',
+  descatalogado: 'warning',
+  obsoleto:      'danger',
+}
+
+const LIFECYCLE_LABEL: Record<LifecycleStatus, string> = {
+  borrador:      'Borrador',
+  activo:        'Activo',
+  descatalogado: 'Descatalogado',
+  obsoleto:      'Obsoleto',
 }
 
 interface CategoryCard {
@@ -167,6 +201,15 @@ function ProductosTab() {
   const [filterEncastres, setFilterEncastres] = useState<string[]>([])
   const [availableBrands, setAvailableBrands] = useState<string[]>([])
   const [availableEncastres, setAvailableEncastres] = useState<string[]>([])
+
+  // Filtros dinámicos por atributo (specs.{key} -> valores seleccionados)
+  const [dynamicFilters, setDynamicFilters] = useState<Record<string, string[]>>({})
+
+  // Filtro por estado de ciclo de vida (multi-select). Default: solo activos.
+  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleStatus[]>(['activo'])
+
+  // Selección múltiple para bulk actions
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   // Debounce ref for sort/filter changes
   const filterDebounceRef = useRef<NodeJS.Timeout | null>(null)
@@ -335,6 +378,8 @@ function ProductosTab() {
     sort: SortOption,
     brands: string[] = [],
     encastres: string[] = [],
+    dynamicAttrs: Record<string, string[]> = {},
+    lifecycle: LifecycleStatus[] = ['activo'],
   ) => {
     setProductsLoading(true)
     const sb = createClient()
@@ -349,9 +394,19 @@ function ProductosTab() {
     let query = sb
       .from('tt_products')
       .select('*', { count: 'exact' })
-      .eq('active', true)
       .order(orderCol, { ascending: orderAsc })
       .range(fromOffset, fromOffset + PAGE_SIZE - 1)
+
+    // Filtro por ciclo de vida — si incluye 'activo', además filtramos active=true.
+    // Si no se eligió ningún estado, mostramos todos (no aplicamos filtro).
+    if (lifecycle.length > 0) {
+      query = query.in('lifecycle_status', lifecycle)
+      // Mantenemos compat con `active` boolean para registros viejos sin lifecycle_status:
+      // si solo seleccionaron 'activo', filtramos también active=true para no traer borradores soft-deleteados.
+      if (lifecycle.length === 1 && lifecycle[0] === 'activo') {
+        query = query.eq('active', true)
+      }
+    }
 
     // Filter by category (skip for '__todos__' which shows everything)
     if (categoryName && categoryName !== '__todos__') {
@@ -363,7 +418,7 @@ function ProductosTab() {
       query = query.eq('subcategory', subcat)
     }
 
-    // Facet filters
+    // Facet filters de columnas
     if (brands.length > 0) {
       query = query.in('brand', brands)
     }
@@ -372,8 +427,25 @@ function ProductosTab() {
     }
 
     const { data, count } = await query
-    setProducts((data || []) as Product[])
-    setTotalCount(count || 0)
+    let rows = (data || []) as Product[]
+
+    // Filtros dinámicos sobre specs (jsonb): post-filter en cliente.
+    // Catálogos típicos tienen <50k productos, y el filtro de página ya redujo la query.
+    // Si esto se vuelve un cuello de botella, mover a SQL con jsonb_path_query.
+    const attrEntries = Object.entries(dynamicAttrs).filter(([, vals]) => vals.length > 0)
+    if (attrEntries.length > 0) {
+      rows = rows.filter(p => {
+        const specs = (p.specs || {}) as Record<string, unknown>
+        return attrEntries.every(([key, vals]) => {
+          const current = specs[key]
+          if (current == null) return false
+          return vals.includes(String(current))
+        })
+      })
+    }
+
+    setProducts(rows)
+    setTotalCount(attrEntries.length > 0 ? rows.length : (count || 0))
     setProductsLoading(false)
   }, [])
 
@@ -392,7 +464,9 @@ function ProductosTab() {
     }
     setPage(1)
     setSortBy('name_asc')
-    loadProducts(categoryName, null, 1, 'name_asc')
+    setDynamicFilters({})
+    setSelectedIds(new Set())
+    loadProducts(categoryName, null, 1, 'name_asc', [], [], {}, lifecycleFilter)
 
     // Load available facet values for this category
     const loadFacets = async () => {
@@ -410,7 +484,7 @@ function ProductosTab() {
       setAvailableEncastres(encastres)
     }
     loadFacets()
-  }, [loadProducts, categories])
+  }, [loadProducts, categories, lifecycleFilter])
 
   // ---------- Go back to categories grid ----------
   const goBackToCategories = useCallback(() => {
@@ -432,20 +506,21 @@ function ProductosTab() {
     if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current)
     filterDebounceRef.current = setTimeout(() => {
       setPage(1)
-      loadProducts(selectedCategory, selectedSubcategory, 1, sortBy, filterBrands, filterEncastres)
+      setSelectedIds(new Set())
+      loadProducts(selectedCategory, selectedSubcategory, 1, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
     }, 400)
     return () => {
       if (filterDebounceRef.current) clearTimeout(filterDebounceRef.current)
     }
-  }, [sortBy, selectedCategory, selectedSubcategory, filterBrands, filterEncastres, loadProducts])
+  }, [sortBy, selectedCategory, selectedSubcategory, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter, loadProducts])
 
   // ---------- Pagination ----------
   const changePage = useCallback((newPage: number) => {
     if (!selectedCategory || newPage < 1 || newPage > totalPages) return
     setPage(newPage)
-    loadProducts(selectedCategory, selectedSubcategory, newPage, sortBy, filterBrands, filterEncastres)
+    loadProducts(selectedCategory, selectedSubcategory, newPage, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
     window.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [totalPages, selectedCategory, selectedSubcategory, sortBy, filterBrands, filterEncastres, loadProducts])
+  }, [totalPages, selectedCategory, selectedSubcategory, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter, loadProducts])
 
   // ---------- Navigate to search result product ----------
   const openSearchProduct = useCallback(async (result: SearchResult) => {
@@ -492,6 +567,11 @@ function ProductosTab() {
       diagram_url: '',
       gallery_urls: [],
       specs: {},
+      ean: '',
+      manufacturer_code: '',
+      supplier_code: '',
+      barcode: '',
+      lifecycle_status: 'borrador',
     })
     setSpecRows([])
     setCompanyPrices({})
@@ -598,6 +678,11 @@ function ProductosTab() {
         ? productForm.gallery_urls.filter(g => g && g.url?.trim())
         : [],
       specs: Object.keys(specs).length > 0 ? specs : null,
+      ean: productForm.ean?.toString().trim() || null,
+      manufacturer_code: productForm.manufacturer_code?.toString().trim() || null,
+      supplier_code: productForm.supplier_code?.toString().trim() || null,
+      barcode: productForm.barcode?.toString().trim() || null,
+      lifecycle_status: (productForm.lifecycle_status as LifecycleStatus | undefined) || null,
     }
 
     let error
@@ -652,10 +737,10 @@ function ProductosTab() {
 
     // Reload
     if (selectedCategory) {
-      loadProducts(selectedCategory, selectedSubcategory, page, sortBy)
+      loadProducts(selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
     }
     loadCategories()
-  }, [productForm, specRows, editingProduct, companyPrices, selectedCategory, selectedSubcategory, page, sortBy, addToast, loadProducts, loadCategories])
+  }, [productForm, specRows, editingProduct, companyPrices, selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter, addToast, loadProducts, loadCategories])
 
   // ---------- Soft delete product ----------
   const softDeleteProduct = useCallback(async (product: Product) => {
@@ -678,10 +763,10 @@ function ProductosTab() {
     setSelectedProduct(null)
 
     if (selectedCategory) {
-      loadProducts(selectedCategory, selectedSubcategory, page, sortBy)
+      loadProducts(selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
     }
     loadCategories()
-  }, [selectedCategory, selectedSubcategory, page, sortBy, addToast, loadProducts, loadCategories])
+  }, [selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter, addToast, loadProducts, loadCategories])
 
   // ---------- WooCommerce CSV Parse ----------
   const parseWooCSV = useCallback(async (file: File) => {
@@ -862,14 +947,14 @@ function ProductosTab() {
       // Reload everything
       loadCategories()
       if (selectedCategory) {
-        loadProducts(selectedCategory, selectedSubcategory, page, sortBy)
+        loadProducts(selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
       }
     } catch (err) {
       setWooImporting(false)
       setWooProgress('')
       addToast({ type: 'error', title: 'Error en importacion', message: String(err) })
     }
-  }, [wooParsedRows, addToast, loadCategories, selectedCategory, selectedSubcategory, page, sortBy, loadProducts])
+  }, [wooParsedRows, addToast, loadCategories, selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter, loadProducts])
 
   // ---------- Get table columns for current category ----------
   const getColumns = useCallback(() => {
@@ -884,14 +969,170 @@ function ProductosTab() {
   }, [])
 
   const hasActiveFilters = useMemo(() => {
-    return !!selectedSubcategory || filterBrands.length > 0 || filterEncastres.length > 0
-  }, [selectedSubcategory, filterBrands, filterEncastres])
+    const dynamicCount = Object.values(dynamicFilters).reduce((acc, arr) => acc + arr.length, 0)
+    return !!selectedSubcategory || filterBrands.length > 0 || filterEncastres.length > 0 || dynamicCount > 0
+  }, [selectedSubcategory, filterBrands, filterEncastres, dynamicFilters])
 
   const clearAllFilters = useCallback(() => {
     setSelectedSubcategory(null)
     setFilterBrands([])
     setFilterEncastres([])
+    setDynamicFilters({})
   }, [])
+
+  // ============================================================
+  // BULK SELECTION HELPERS
+  // ============================================================
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const togglePageSelectAll = useCallback(() => {
+    setSelectedIds(prev => {
+      const allIds = products.map(p => p.id)
+      const allSelected = allIds.every(id => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) {
+        for (const id of allIds) next.delete(id)
+      } else {
+        for (const id of allIds) next.add(id)
+      }
+      return next
+    })
+  }, [products])
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set())
+  }, [])
+
+  // Refresca productos con los filtros activos (helper local)
+  const refreshAfterBulk = useCallback(() => {
+    if (selectedCategory) {
+      loadProducts(selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
+    }
+  }, [selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter, loadProducts])
+
+  // ─── Bulk handlers ───
+  const bulkActivate = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const sb = createClient()
+    const { error } = await sb.from('tt_products').update({ active: true, lifecycle_status: 'activo' }).in('id', ids)
+    if (error) { addToast({ type: 'error', title: 'Error activando', message: error.message }); return }
+    addToast({ type: 'success', title: `${ids.length} producto${ids.length > 1 ? 's' : ''} activado${ids.length > 1 ? 's' : ''}` })
+    clearSelection()
+    refreshAfterBulk()
+  }, [selectedIds, addToast, clearSelection, refreshAfterBulk])
+
+  const bulkDeactivate = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const sb = createClient()
+    const { error } = await sb.from('tt_products').update({ active: false, lifecycle_status: 'descatalogado' }).in('id', ids)
+    if (error) { addToast({ type: 'error', title: 'Error descatalogando', message: error.message }); return }
+    addToast({ type: 'success', title: `${ids.length} descatalogado${ids.length > 1 ? 's' : ''}` })
+    clearSelection()
+    refreshAfterBulk()
+  }, [selectedIds, addToast, clearSelection, refreshAfterBulk])
+
+  const bulkChangeBrand = useCallback(async (brand: string) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const sb = createClient()
+    const { error } = await sb.from('tt_products').update({ brand }).in('id', ids)
+    if (error) { addToast({ type: 'error', title: 'Error', message: error.message }); return }
+    addToast({ type: 'success', title: `Marca actualizada en ${ids.length} producto${ids.length > 1 ? 's' : ''}` })
+    clearSelection()
+    refreshAfterBulk()
+  }, [selectedIds, addToast, clearSelection, refreshAfterBulk])
+
+  const bulkChangeCategory = useCallback(async (category: string, subcategory: string | null) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const sb = createClient()
+    const { error } = await sb.from('tt_products').update({ category, subcategory }).in('id', ids)
+    if (error) { addToast({ type: 'error', title: 'Error', message: error.message }); return }
+    addToast({ type: 'success', title: `Categoría actualizada en ${ids.length} producto${ids.length > 1 ? 's' : ''}` })
+    clearSelection()
+    refreshAfterBulk()
+    loadCategories()
+  }, [selectedIds, addToast, clearSelection, refreshAfterBulk, loadCategories])
+
+  const bulkChangeLifecycle = useCallback(async (status: LifecycleStatus) => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const sb = createClient()
+    const patch: Record<string, unknown> = { lifecycle_status: status }
+    if (status === 'activo') patch.active = true
+    else if (status === 'obsoleto' || status === 'descatalogado') patch.active = false
+    const { error } = await sb.from('tt_products').update(patch).in('id', ids)
+    if (error) { addToast({ type: 'error', title: 'Error', message: error.message }); return }
+    addToast({ type: 'success', title: `Estado "${status}" aplicado a ${ids.length}` })
+    clearSelection()
+    refreshAfterBulk()
+  }, [selectedIds, addToast, clearSelection, refreshAfterBulk])
+
+  const bulkApplyMarkup = useCallback(async (pct: number, target: 'price_eur' | 'cost_eur' | 'price_usd' | 'price_ars') => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const sb = createClient()
+    const { data: rows, error: readErr } = await sb.from('tt_products').select(`id, ${target}`).in('id', ids)
+    if (readErr) { addToast({ type: 'error', title: 'Error leyendo', message: readErr.message }); return }
+    const factor = 1 + (pct / 100)
+    let ok = 0, fail = 0
+    for (const r of (rows || [])) {
+      const current = (r as Record<string, unknown>)[target] as number | null
+      if (current == null) { fail++; continue }
+      const next = Math.round(current * factor * 100) / 100
+      const { error: upErr } = await sb.from('tt_products').update({ [target]: next }).eq('id', (r as { id: string }).id)
+      if (upErr) fail++; else ok++
+    }
+    addToast({
+      type: fail > 0 ? 'warning' : 'success',
+      title: `Markup aplicado: ${ok} ok${fail > 0 ? `, ${fail} fallaron` : ''}`,
+    })
+    clearSelection()
+    refreshAfterBulk()
+  }, [selectedIds, addToast, clearSelection, refreshAfterBulk])
+
+  const bulkSoftDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds)
+    if (ids.length === 0) return
+    const sb = createClient()
+    const { error } = await sb.from('tt_products').update({ active: false, lifecycle_status: 'obsoleto' }).in('id', ids)
+    if (error) { addToast({ type: 'error', title: 'Error', message: error.message }); return }
+    addToast({ type: 'success', title: `${ids.length} producto${ids.length > 1 ? 's' : ''} marcados como obsoletos` })
+    clearSelection()
+    refreshAfterBulk()
+  }, [selectedIds, addToast, clearSelection, refreshAfterBulk])
+
+  const bulkExport = useCallback(() => {
+    const ids = new Set(selectedIds)
+    const rows = products.filter(p => ids.has(p.id))
+    if (rows.length === 0) return
+    const headers = ['sku', 'name', 'brand', 'category', 'subcategory', 'lifecycle_status', 'ean', 'manufacturer_code', 'supplier_code', 'price_eur', 'cost_eur', 'price_usd', 'price_ars', 'encastre', 'torque_min', 'torque_max', 'rpm', 'weight_kg', 'modelo', 'serie', 'origin']
+    const csv = [
+      headers.join(','),
+      ...rows.map(p => headers.map(h => {
+        const v = (p as unknown as Record<string, unknown>)[h]
+        if (v == null) return ''
+        const s = String(v)
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? '"' + s.replace(/"/g, '""') + '"' : s
+      }).join(',')),
+    ].join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `productos_seleccion_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    addToast({ type: 'success', title: `${rows.length} productos exportados` })
+  }, [selectedIds, products, addToast])
 
   // ============================================================
   // RENDER
@@ -928,16 +1169,24 @@ function ProductosTab() {
             { key: 'serie', label: 'Serie' },
             { key: 'origin', label: 'Origen' },
             { key: 'image_url', label: 'URL Imagen' },
+            { key: 'image_urls', label: 'Galería de imágenes (URLs separadas por |)' },
             { key: 'active', label: 'Activo', type: 'boolean' },
+            { key: 'ean', label: 'EAN / Código de barras' },
+            { key: 'barcode', label: 'Código de barras (legacy)' },
+            { key: 'manufacturer_code', label: 'Referencia del fabricante' },
+            { key: 'supplier_code', label: 'Referencia del proveedor' },
+            { key: 'lifecycle_status', label: 'Estado ciclo de vida' },
           ]}
           onComplete={() => {
             if (selectedCategory) {
-              loadProducts(selectedCategory, selectedSubcategory, page, sortBy)
+              loadProducts(selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
             }
             loadCategories()
           }}
           label="Importar"
         />
+        <ImportJobsHistory targetTable="tt_products" />
+        <ImportTemplatesManager targetTable="tt_products" />
         <Button
           variant="secondary"
           size="sm"
@@ -1170,6 +1419,30 @@ function ProductosTab() {
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
                 className="w-[140px]"
               />
+              <ProductSavedViews
+                current={{
+                  category: selectedCategory,
+                  subcategory: selectedSubcategory,
+                  filterBrands,
+                  filterEncastres,
+                  dynamicFilters,
+                  lifecycleFilter,
+                  sortBy,
+                  viewMode,
+                  searchQuery,
+                }}
+                onApply={(v: SavedView) => {
+                  if (v.category) setSelectedCategory(v.category)
+                  setSelectedSubcategory(v.subcategory)
+                  setFilterBrands(v.filterBrands)
+                  setFilterEncastres(v.filterEncastres)
+                  setDynamicFilters(v.dynamicFilters)
+                  setLifecycleFilter(v.lifecycleFilter as LifecycleStatus[])
+                  setSortBy(v.sortBy as SortOption)
+                  setViewMode(v.viewMode)
+                  if (v.searchQuery) setSearchQuery(v.searchQuery)
+                }}
+              />
               <ExportButton
                 data={products as unknown as Record<string, unknown>[]}
                 filename={`productos_${(selectedCategory === '__todos__' ? 'todos' : selectedCategory).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`}
@@ -1192,7 +1465,7 @@ function ProductosTab() {
           </div>
 
           {/* ======= FILTER PANEL ======= */}
-          {(currentSubcategories.length > 0 || availableBrands.length > 1 || availableEncastres.length > 0) && (
+          {(currentSubcategories.length > 0 || availableBrands.length > 1 || availableEncastres.length > 0 || true) && (
             <div className="rounded-xl bg-[#141820] border border-[#1E2330] p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -1284,6 +1557,50 @@ function ProductosTab() {
                 </div>
               )}
 
+              {/* Estado de ciclo de vida (multi-select) */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#4B5563] mb-2">Estado</p>
+                <div className="flex flex-wrap gap-2">
+                  {LIFECYCLE_OPTIONS.map(opt => {
+                    const active = lifecycleFilter.includes(opt.value)
+                    let activeCls = 'border-[#9CA3AF] bg-[#9CA3AF]/15 text-[#9CA3AF]'
+                    if (opt.variant === 'success') activeCls = 'border-emerald-500 bg-emerald-500/15 text-emerald-400'
+                    else if (opt.variant === 'warning') activeCls = 'border-amber-500 bg-amber-500/15 text-amber-400'
+                    else if (opt.variant === 'danger') activeCls = 'border-red-500 bg-red-500/15 text-red-400'
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => setLifecycleFilter(prev =>
+                          prev.includes(opt.value) ? prev.filter(v => v !== opt.value) : [...prev, opt.value]
+                        )}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all duration-200 ${
+                          active ? activeCls : 'border-[#2A3040] bg-[#0F1218] text-[#9CA3AF] hover:border-[#3A4050] hover:text-[#F0F2F5]'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    )
+                  })}
+                  <button
+                    onClick={() => setLifecycleFilter([])}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-dashed border-[#2A3040] text-[#6B7280] hover:text-[#FF6600] hover:border-[#FF6600]/40"
+                  >
+                    Todos
+                  </button>
+                </div>
+              </div>
+
+              {/* Filtros dinámicos por atributo de categoría */}
+              {selectedCategory && selectedCategory !== '__todos__' && (
+                <DynamicFacetFilters
+                  category={selectedCategory}
+                  attributes={presets.getAttributesForCategory(selectedCategory)}
+                  getValuesForAttribute={presets.getValuesForAttribute}
+                  values={dynamicFilters}
+                  onChange={setDynamicFilters}
+                />
+              )}
+
               {/* Active filter tags */}
               {hasActiveFilters && (
                 <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-[#1E2330]">
@@ -1335,8 +1652,21 @@ function ProductosTab() {
                 <div
                   key={product.id}
                   onClick={() => setSelectedProduct(product)}
-                  className="group rounded-xl bg-[#0F1218] border border-[#1E2330] hover:border-[#FF6600]/40 hover:bg-[#141820] transition-all cursor-pointer overflow-hidden flex flex-col hover:shadow-lg hover:shadow-[#FF6600]/5 hover:-translate-y-0.5"
+                  className={`group rounded-xl bg-[#0F1218] border ${selectedIds.has(product.id) ? 'border-[#FF6600]' : 'border-[#1E2330] hover:border-[#FF6600]/40'} hover:bg-[#141820] transition-all cursor-pointer overflow-hidden flex flex-col hover:shadow-lg hover:shadow-[#FF6600]/5 hover:-translate-y-0.5 relative`}
                 >
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleSelected(product.id) }}
+                      className={`absolute top-2 left-2 z-10 w-5 h-5 rounded border-2 flex items-center justify-center transition ${
+                        selectedIds.has(product.id)
+                          ? 'bg-[#FF6600] border-[#FF6600]'
+                          : 'bg-black/50 border-white/40 hover:border-[#FF6600] backdrop-blur-sm'
+                      }`}
+                      title={selectedIds.has(product.id) ? 'Deseleccionar' : 'Seleccionar'}
+                    >
+                      {selectedIds.has(product.id) && <Check size={12} className="text-white" />}
+                    </button>
+                  )}
                   {/* Image */}
                   <div className="aspect-square bg-[#141820] flex items-center justify-center overflow-hidden relative">
                     {product.image_url ? (
@@ -1368,7 +1698,14 @@ function ProductosTab() {
 
                   {/* Info */}
                   <div className="p-3 flex flex-col flex-1 gap-1.5">
-                    <span className="font-mono text-[11px] text-[#FF6600] group-hover:text-[#FF8833]">{product.sku}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] text-[#FF6600] group-hover:text-[#FF8833]">{product.sku}</span>
+                      {product.lifecycle_status && product.lifecycle_status !== 'activo' && (
+                        <Badge variant={LIFECYCLE_VARIANT[product.lifecycle_status]} size="sm">
+                          {LIFECYCLE_LABEL[product.lifecycle_status]}
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-xs font-medium text-[#D1D5DB] line-clamp-2 group-hover:text-white leading-relaxed flex-1">{product.name}</p>
 
                     {/* Spec chips */}
@@ -1418,6 +1755,23 @@ function ProductosTab() {
                 <table className="w-full text-sm">
                   <thead className="bg-[#0A0D12] border-b border-[#1E2330]">
                     <tr>
+                      {isAdmin && (
+                        <th className="px-3 py-3 w-[40px] text-center">
+                          <button
+                            onClick={togglePageSelectAll}
+                            className={`w-4 h-4 rounded border flex items-center justify-center transition mx-auto ${
+                              products.length > 0 && products.every(p => selectedIds.has(p.id))
+                                ? 'bg-[#FF6600] border-[#FF6600]'
+                                : 'border-[#3A4050] hover:border-[#FF6600]'
+                            }`}
+                            title="Seleccionar página"
+                          >
+                            {products.length > 0 && products.every(p => selectedIds.has(p.id)) && (
+                              <Check size={11} className="text-white" />
+                            )}
+                          </button>
+                        </th>
+                      )}
                       {getColumns().map((col) => {
                         const colDefs: Record<string, { label: string; align: string; sortable?: boolean; sortKey?: SortOption }> = {
                           image: { label: '', align: 'text-center', },
@@ -1463,8 +1817,22 @@ function ProductosTab() {
                       <tr
                         key={product.id}
                         onClick={() => setSelectedProduct(product)}
-                        className="hover:bg-[#1A1F2E] transition-colors cursor-pointer group"
+                        className={`hover:bg-[#1A1F2E] transition-colors cursor-pointer group ${selectedIds.has(product.id) ? 'bg-[#FF6600]/5' : ''}`}
                       >
+                        {isAdmin && (
+                          <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleSelected(product.id) }}
+                              className={`w-4 h-4 rounded border flex items-center justify-center transition mx-auto ${
+                                selectedIds.has(product.id)
+                                  ? 'bg-[#FF6600] border-[#FF6600]'
+                                  : 'border-[#3A4050] hover:border-[#FF6600]'
+                              }`}
+                            >
+                              {selectedIds.has(product.id) && <Check size={11} className="text-white" />}
+                            </button>
+                          </td>
+                        )}
                         {getColumns().map((col) => {
                           switch (col) {
                             case 'image':
@@ -1491,7 +1859,14 @@ function ProductosTab() {
                             case 'sku':
                               return (
                                 <td key={col} className="px-3 py-2">
-                                  <span className="font-mono text-xs text-[#FF6600] group-hover:text-[#FF8833]">{product.sku}</span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-xs text-[#FF6600] group-hover:text-[#FF8833]">{product.sku}</span>
+                                    {product.lifecycle_status && product.lifecycle_status !== 'activo' && (
+                                      <Badge variant={LIFECYCLE_VARIANT[product.lifecycle_status]} size="sm">
+                                        {LIFECYCLE_LABEL[product.lifecycle_status]}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </td>
                               )
                             case 'name':
@@ -1981,19 +2356,76 @@ function ProductosTab() {
                 />
               </div>
 
-              {/* Active toggle */}
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-[#0A0D12] border border-[#1E2330]">
-                <label className="flex items-center gap-3 cursor-pointer">
-                  <div
-                    className={`relative w-10 h-5 rounded-full transition-colors ${productForm.active ? 'bg-emerald-500' : 'bg-[#2A3040]'}`}
-                    onClick={() => updateProductField('active', !productForm.active)}
+              {/* ─── Códigos del producto (multi-código) ─── */}
+              <div className="rounded-xl bg-[#0A0D12] border border-[#1E2330] p-4 space-y-3">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-[#FF6600]">
+                  Códigos del producto
+                </p>
+                <p className="text-[10px] text-[#6B7280] -mt-2">
+                  Cualquiera de estos puede usarse para buscar el producto.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="EAN / Código de barras"
+                    value={productForm.ean || ''}
+                    onChange={(e) => updateProductField('ean', e.target.value)}
+                    placeholder="8412345678901"
+                  />
+                  <Input
+                    label="Código de barras (legacy)"
+                    value={productForm.barcode || ''}
+                    onChange={(e) => updateProductField('barcode', e.target.value)}
+                    placeholder="opcional"
+                  />
+                  <Input
+                    label="Referencia del fabricante"
+                    value={productForm.manufacturer_code || ''}
+                    onChange={(e) => updateProductField('manufacturer_code', e.target.value)}
+                    placeholder="ej: 7113510000"
+                  />
+                  <Input
+                    label="Referencia del proveedor"
+                    value={productForm.supplier_code || ''}
+                    onChange={(e) => updateProductField('supplier_code', e.target.value)}
+                    placeholder="ej: SUP-12345"
+                  />
+                </div>
+              </div>
+
+              {/* ─── Ciclo de vida ─── */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="w-full">
+                  <label className="block text-sm font-medium text-[#9CA3AF] mb-1.5">
+                    Estado del ciclo de vida
+                  </label>
+                  <select
+                    value={(productForm.lifecycle_status as string) || 'borrador'}
+                    onChange={(e) => updateProductField('lifecycle_status', e.target.value as LifecycleStatus)}
+                    className="w-full h-10 rounded-lg bg-[#1E2330] border border-[#2A3040] px-3 text-sm text-[#F0F2F5] focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500/50 transition-all appearance-none"
                   >
-                    <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${productForm.active ? 'left-5.5 translate-x-0.5' : 'left-0.5'}`} />
+                    {LIFECYCLE_OPTIONS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-[#6B7280] mt-1">
+                    Borrador: en preparación. Activo: vendible. Descatalogado: ya no se vende. Obsoleto: archivado.
+                  </p>
+                </div>
+                <div className="w-full flex items-end">
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-[#0A0D12] border border-[#1E2330] w-full">
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <div
+                        className={`relative w-10 h-5 rounded-full transition-colors ${productForm.active ? 'bg-emerald-500' : 'bg-[#2A3040]'}`}
+                        onClick={() => updateProductField('active', !productForm.active)}
+                      >
+                        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${productForm.active ? 'left-5.5 translate-x-0.5' : 'left-0.5'}`} />
+                      </div>
+                      <span className="text-sm text-[#F0F2F5]">
+                        {productForm.active ? 'Producto activo' : 'Producto inactivo'}
+                      </span>
+                    </label>
                   </div>
-                  <span className="text-sm text-[#F0F2F5]">
-                    {productForm.active ? 'Producto activo' : 'Producto inactivo'}
-                  </span>
-                </label>
+                </div>
               </div>
             </div>
           )}
@@ -2475,6 +2907,24 @@ function ProductosTab() {
           )}
         </div>
       </Modal>
+
+      {/* ======== BULK ACTIONS BAR (admin only) ======== */}
+      {isAdmin && (
+        <ProductBulkActionsBar
+          selectedIds={Array.from(selectedIds)}
+          onClear={clearSelection}
+          onActivate={bulkActivate}
+          onDeactivate={bulkDeactivate}
+          onChangeBrand={bulkChangeBrand}
+          onChangeCategory={bulkChangeCategory}
+          onChangeLifecycle={bulkChangeLifecycle}
+          onApplyMarkup={bulkApplyMarkup}
+          onSoftDelete={bulkSoftDelete}
+          onExport={bulkExport}
+          brands={availableBrands.length > 0 ? availableBrands : presets.brands.map(b => b.name)}
+          categories={categories.map(c => ({ name: c.name, subcategories: c.subcategories }))}
+        />
+      )}
     </div>
   )
 }

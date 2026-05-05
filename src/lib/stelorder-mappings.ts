@@ -6,6 +6,10 @@
  *
  * Cada key del objeto principal es el nombre de una tabla Supabase.
  * Cada sub-objeto mapea: "Columna StelOrder" -> "campo_interno"
+ *
+ * Fase 2: la lógica nueva vive en `src/lib/import-profiles/`. Este archivo se
+ * mantiene como retro-compatibilidad y como source-of-truth de los headers
+ * StelOrder, ya que el nuevo profile lo re-usa para postProcessProductRecord.
  */
 
 // ═══════════════════════════════════════════════════════
@@ -57,7 +61,12 @@ export const STELORDER_MAPPINGS: Record<string, Record<string, string>> = {
     'Categoría': 'category',
     'Activa': 'active',
     'Observaciones privadas': 'specs.private_notes',
-    'Código de barras': 'barcode',
+    // v48: EAN va a su propia columna; mantenemos backward compat por validador (si no es EAN-13, queda en barcode legacy)
+    'Código de barras': 'ean',
+    // v48: multi-código
+    'Referencia del fabricante': 'manufacturer_code',
+    'Referencia del proveedor': 'supplier_code',
+    'Galería de imágenes (URLs separadas por |)': 'image_urls',
     'Ubicación': 'specs.location',
     'Unidad de medida': 'specs.unit',
     'Tipo impuesto venta': 'specs.tax_type_sale',
@@ -256,6 +265,49 @@ export function expandDotNotation(record: Record<string, unknown>): Record<strin
   }
 
   return result
+}
+
+/**
+ * Valida si un string parece un EAN-13 (13 dígitos numéricos).
+ * No verifica el dígito de control — solo el formato.
+ */
+export function isLikelyEAN13(value: string): boolean {
+  return /^\d{13}$/.test(value.trim())
+}
+
+/**
+ * Post-procesa un record importado para v48:
+ *  - Si `ean` no es EAN-13 válido, lo mueve a `barcode` (legacy) y limpia ean.
+ *  - Si hay `image_urls` (string separado por `|`), lo expande a `gallery_urls` JSON
+ *    y completa `image_url` con la primera URL si está vacío.
+ * Mutación in-place sobre el record para simplicidad.
+ */
+export function postProcessProductRecord(record: Record<string, unknown>): Record<string, unknown> {
+  // EAN: solo acepta 13 dígitos. Cualquier otro código va a barcode.
+  if (typeof record.ean === 'string' && record.ean.trim() !== '' && !isLikelyEAN13(record.ean)) {
+    if (record.barcode == null || record.barcode === '') {
+      record.barcode = record.ean
+    }
+    record.ean = null
+  }
+
+  // Galería virtual desde image_urls (split por |)
+  if (typeof record.image_urls === 'string' && record.image_urls.trim()) {
+    const urls = (record.image_urls as string)
+      .split('|')
+      .map(u => u.trim())
+      .filter(u => /^https?:\/\//i.test(u))
+    if (urls.length > 0) {
+      record.gallery_urls = urls.map((url, i) => ({ url, sort_order: i }))
+      if (!record.image_url || record.image_url === '') {
+        record.image_url = urls[0]
+      }
+    }
+    // image_urls es un campo "virtual"; no existe en la tabla, lo eliminamos antes del INSERT/UPDATE
+    delete record.image_urls
+  }
+
+  return record
 }
 
 /**
