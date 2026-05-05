@@ -123,6 +123,7 @@ COMMENT ON COLUMN tt_import_jobs.row_log IS 'Detalle por fila con before/after �
 ALTER TABLE tt_products ADD COLUMN IF NOT EXISTS ean               text;
 ALTER TABLE tt_products ADD COLUMN IF NOT EXISTS manufacturer_code text;
 ALTER TABLE tt_products ADD COLUMN IF NOT EXISTS supplier_code     text;
+ALTER TABLE tt_products ADD COLUMN IF NOT EXISTS barcode           text;
 
 -- Lifecycle status (más granular que active/inactive)
 ALTER TABLE tt_products ADD COLUMN IF NOT EXISTS lifecycle_status text
@@ -139,6 +140,7 @@ ALTER TABLE tt_products ALTER COLUMN lifecycle_status SET DEFAULT 'activo';
 CREATE INDEX IF NOT EXISTS idx_products_ean               ON tt_products(ean) WHERE ean IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_products_manufacturer_code ON tt_products(manufacturer_code) WHERE manufacturer_code IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_products_supplier_code     ON tt_products(supplier_code) WHERE supplier_code IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_products_barcode           ON tt_products(barcode) WHERE barcode IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_products_lifecycle_status  ON tt_products(lifecycle_status);
 
 COMMENT ON COLUMN tt_products.ean IS 'Código de barras EAN-13 / GTIN del producto (estándar global).';
