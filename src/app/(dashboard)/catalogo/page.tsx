@@ -35,6 +35,17 @@ import { DynamicFacetFilters } from '@/components/catalogo/dynamic-facet-filters
 import { ProductSavedViews, type SavedView } from '@/components/catalogo/product-saved-views'
 import { ImportJobsHistory } from '@/components/catalogo/import-jobs-history'
 import { ImportTemplatesManager } from '@/components/catalogo/import-templates-manager'
+import { ProductVariantsTab } from '@/components/catalogo/product-variants-tab'
+import { ProductLotsTab } from '@/components/catalogo/product-lots-tab'
+import { ProductSerialsTab } from '@/components/catalogo/product-serials-tab'
+import { ProductTranslationsTab } from '@/components/catalogo/product-translations-tab'
+import { CatalogPDFButton } from '@/components/catalogo/catalog-pdf-button'
+import { LabelsButton } from '@/components/catalogo/labels-button'
+import { FeedsManager } from '@/components/catalogo/feeds-manager'
+import { ScheduledExportsManager } from '@/components/catalogo/scheduled-exports-manager'
+import { RulesManager } from '@/components/catalogo/rules-manager'
+import { ExpiringWidget } from '@/components/catalogo/expiring-widget'
+import { triggerRules } from '@/lib/catalog-rules-engine'
 import { useCatalogPresets } from '@/hooks/use-catalog-presets'
 
 const PAGE_SIZE = 50
@@ -220,7 +231,7 @@ function ProductosTab() {
   // Product form modal (create + edit)
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
-  const [productFormTab, setProductFormTab] = useState<'general' | 'precios' | 'tecnico' | 'imagenes' | 'specs'>('general')
+  const [productFormTab, setProductFormTab] = useState<'general' | 'precios' | 'tecnico' | 'variantes' | 'lotes' | 'series' | 'idiomas' | 'imagenes' | 'specs'>('general')
   const [productForm, setProductForm] = useState<Partial<Product>>({})
   const [productSaving, setProductSaving] = useState(false)
   const [brandSuggestions, setBrandSuggestions] = useState<string[]>([])
@@ -735,6 +746,12 @@ function ProductosTab() {
     setShowProductForm(false)
     setEditingProduct(null)
 
+    // Disparar reglas automáticas (fire-and-forget, sin bloquear UI).
+    void triggerRules(editingProduct ? 'product_updated' : 'product_created', {
+      before: (editingProduct ?? null) as unknown as Record<string, unknown> | null,
+      after: { id: savedProductId, ...payload } as unknown as Record<string, unknown>,
+    }).catch((err: unknown) => console.warn('triggerRules falló:', err))
+
     // Reload
     if (selectedCategory) {
       loadProducts(selectedCategory, selectedSubcategory, page, sortBy, filterBrands, filterEncastres, dynamicFilters, lifecycleFilter)
@@ -1194,6 +1211,27 @@ function ProductosTab() {
         >
           <Upload size={14} /> Importar WooCommerce
         </Button>
+        <CatalogPDFButton
+          products={products as unknown as import('@/lib/catalog-pdf').CatalogPDFProduct[]}
+          selectedProducts={
+            selectedIds.size > 0
+              ? products.filter(p => selectedIds.has(p.id)) as unknown as import('@/lib/catalog-pdf').CatalogPDFProduct[]
+              : undefined
+          }
+          companyName="Torquetools"
+        />
+        <FeedsManager />
+        <ScheduledExportsManager />
+        <RulesManager />
+        <ExpiringWidget />
+        <LabelsButton
+          products={
+            (selectedIds.size > 0
+              ? products.filter(p => selectedIds.has(p.id))
+              : products
+            ).map(p => ({ sku: p.sku, name: p.name, ean: p.ean, price: p.price_eur }))
+          }
+        />
         <Button
           variant="secondary"
           size="sm"
@@ -2186,6 +2224,12 @@ function ProductosTab() {
               { id: 'general' as const, label: 'General' },
               { id: 'precios' as const, label: 'Precios' },
               { id: 'tecnico' as const, label: 'Tecnico' },
+              ...(editingProduct ? [
+                { id: 'variantes' as const, label: 'Variantes' },
+                { id: 'lotes' as const, label: 'Lotes' },
+                { id: 'series' as const, label: 'Series' },
+                { id: 'idiomas' as const, label: 'Idiomas' },
+              ] : []),
               { id: 'imagenes' as const, label: 'Imagenes' },
               { id: 'specs' as const, label: 'Specs' },
             ]).map(tab => (
@@ -2669,6 +2713,32 @@ function ProductosTab() {
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ─── TAB: Variantes ─── */}
+          {productFormTab === 'variantes' && editingProduct && (
+            <ProductVariantsTab productId={editingProduct.id} productSku={editingProduct.sku} />
+          )}
+
+          {/* ─── TAB: Lotes ─── */}
+          {productFormTab === 'lotes' && editingProduct && (
+            <ProductLotsTab productId={editingProduct.id} />
+          )}
+
+          {/* ─── TAB: Series ─── */}
+          {productFormTab === 'series' && editingProduct && (
+            <ProductSerialsTab productId={editingProduct.id} />
+          )}
+
+          {/* ─── TAB: Idiomas ─── */}
+          {productFormTab === 'idiomas' && editingProduct && (
+            <ProductTranslationsTab
+              productId={editingProduct.id}
+              baseFields={{
+                name: editingProduct.name,
+                description: editingProduct.description,
+              }}
+            />
           )}
 
           {/* ─── TAB: Specs (JSONB key-value pairs) ─── */}
