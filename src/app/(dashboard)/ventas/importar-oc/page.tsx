@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useCompanyFilter } from '@/hooks/use-company-filter'
 import { Card } from '@/components/ui/card'
@@ -10,7 +11,7 @@ import { OCParserModal } from '@/components/ai/oc-parser-modal'
 import { OCDetailModal } from '@/components/ai/oc-detail-modal'
 import { DocumentProcessBar } from '@/components/workflow/document-process-bar'
 import { buildSteps } from '@/lib/workflow-definitions'
-import { Upload, FileText, Sparkles, RefreshCw } from 'lucide-react'
+import { Upload, FileText, Sparkles, RefreshCw, ArrowRight } from 'lucide-react'
 
 interface OC {
   id: string
@@ -26,6 +27,11 @@ interface OC {
   deletion_status?: 'active' | 'deletion_requested' | 'deleted'
   deletion_reason?: string | null
   document?: { legal_number?: string; total?: number; client_id?: string }
+  // Enriquecido al cargar — link al pedido generado desde esta OC
+  order_doc_id?: string
+  order_code?: string
+  // Enriquecido — datos de la cotización matcheada
+  quote_code?: string
 }
 
 interface Quote {
@@ -37,6 +43,7 @@ interface Quote {
 }
 
 export default function ImportarOCPage() {
+  const router = useRouter()
   const supabase = createClient()
   const { filterByCompany, activeCompanyId } = useCompanyFilter()
   const [ocs, setOcs] = useState<OC[]>([])
@@ -56,7 +63,8 @@ export default function ImportarOCPage() {
       .order('created_at', { ascending: false })
       .limit(50)
     const { data: qs } = await filterByCompany(qQ)
-    setQuotes((qs as Quote[]) || [])
+    const quotesList = (qs as Quote[]) || []
+    setQuotes(quotesList)
 
     // OCs parseadas recientes (excluimos las eliminadas; las con solicitud pendiente sí se muestran)
     const { data: ocData } = await supabase
@@ -65,7 +73,48 @@ export default function ImportarOCPage() {
       .neq('deletion_status', 'deleted')
       .order('created_at', { ascending: false })
       .limit(30)
-    setOcs((ocData as OC[]) || [])
+    const ocsList = (ocData as OC[]) || []
+
+    // Enriquecer cada OC con: pedido vinculado (si existe) y código de cotización matcheada
+    const ocDocIds = ocsList.map((o) => o.document_id).filter((x): x is string => !!x)
+    let orderLinks: Record<string, { id: string; code?: string }> = {}
+    if (ocDocIds.length > 0) {
+      const { data: links } = await supabase
+        .from('tt_document_links')
+        .select(`child_id, parent_id, tt_documents:child_id ( id, system_code, legal_number, type )`)
+        .in('parent_id', ocDocIds)
+        .eq('relation_type', 'pedido')
+      type LinkRow = {
+        parent_id: string
+        child_id: string
+        tt_documents?: { id?: string; system_code?: string; legal_number?: string }
+      }
+      orderLinks = ((links as unknown as LinkRow[]) || []).reduce((acc, l) => {
+        if (l.parent_id && l.child_id) {
+          acc[l.parent_id] = {
+            id: l.tt_documents?.id || l.child_id,
+            code: l.tt_documents?.legal_number || l.tt_documents?.system_code,
+          }
+        }
+        return acc
+      }, {} as Record<string, { id: string; code?: string }>)
+    }
+
+    const quotesById = new Map(
+      quotesList.map((q) => [q.id, q.legal_number || q.system_code || ''])
+    )
+
+    setOcs(
+      ocsList.map((oc) => {
+        const ord = oc.document_id ? orderLinks[oc.document_id] : undefined
+        return {
+          ...oc,
+          order_doc_id: ord?.id,
+          order_code: ord?.code,
+          quote_code: oc.matched_quote_id ? quotesById.get(oc.matched_quote_id) : undefined,
+        }
+      })
+    )
 
     setLoading(false)
   }, [activeCompanyId])
@@ -88,6 +137,42 @@ export default function ImportarOCPage() {
 
   const pendingDiscrepancies = ocs.reduce((sum, oc) => sum + ((oc.ai_discrepancies || []).filter(d => d.severity === 'high').length), 0)
 
+  // Targets para navegación desde el stepper. La regla: cada paso del workflow
+  // tiene una "OC representativa" (la más reciente que llegó a ese paso) y se
+  // navega a su detalle o a la entidad relacionada (cotización, pedido).
+  const latestParsed = ocs.find((o) => o.parsed_at || o.status === 'parsed')
+  const latestMatched = ocs.find((o) => o.matched_quote_id)
+  const latestValidated = ocs.find((o) => o.status === 'validated')
+  const latestWithOrder = ocs.find((o) => o.order_doc_id)
+
+  const stepOverrides: Record<string, { onClick?: () => void; hint?: string }> = {
+    uploaded: {
+      hint: hasUploaded ? `${ocs.length} cargada${ocs.length !== 1 ? 's' : ''}` : 'subir PDF',
+      onClick: () => {
+        if (!hasUploaded) setParserOpen(true)
+        else window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+      },
+    },
+    parsed: latestParsed
+      ? { onClick: () => setDetailOcId(latestParsed.id), hint: 'ver detalle parseado' }
+      : {},
+    matched: latestMatched?.matched_quote_id
+      ? {
+          onClick: () => router.push(`/documentos/${latestMatched.matched_quote_id}`),
+          hint: latestMatched.quote_code ? `→ ${latestMatched.quote_code}` : 'ver cotización',
+        }
+      : {},
+    validated: latestValidated
+      ? { onClick: () => setDetailOcId(latestValidated.id), hint: 'ver OC validada' }
+      : {},
+    order: latestWithOrder?.order_doc_id
+      ? {
+          onClick: () => router.push(`/documentos/${latestWithOrder.order_doc_id}`),
+          hint: latestWithOrder.order_code ? `→ ${latestWithOrder.order_code}` : 'ver pedido',
+        }
+      : {},
+  }
+
   return (
     <div className="space-y-4">
       {/* ══════════════════════════════════════════════════════════════
@@ -109,7 +194,7 @@ export default function ImportarOCPage() {
           ...(pendingDiscrepancies > 0 ? [{ type: 'warning' as const, message: `${pendingDiscrepancies} discrepancia${pendingDiscrepancies !== 1 ? 's' : ''} de alta severidad pendiente${pendingDiscrepancies !== 1 ? 's' : ''} de revisión` }] : []),
           ...(!selectedQuoteId && ocs.length === 0 ? [{ type: 'info' as const, message: 'Seleccioná una cotización de referencia antes de subir la OC' }] : []),
         ]}
-        steps={buildSteps('client_po', currentOCStep)}
+        steps={buildSteps('client_po', currentOCStep, stepOverrides)}
         actions={[
           { label: 'Subir OC', onClick: () => setParserOpen(true), icon: 'play', variant: 'primary' },
         ]}
@@ -201,6 +286,35 @@ export default function ImportarOCPage() {
                         {oc.parsed_at ? new Date(oc.parsed_at).toLocaleString('es-AR') : '—'}
                         {oc.file_name && ` · ${oc.file_name}`}
                       </div>
+                      {(oc.matched_quote_id || oc.order_doc_id) && (
+                        <div
+                          className="flex items-center gap-2 mt-2 flex-wrap"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {oc.matched_quote_id && (
+                            <button
+                              type="button"
+                              onClick={() => router.push(`/documentos/${oc.matched_quote_id}`)}
+                              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border hover:bg-white/5 transition-colors"
+                              style={{ borderColor: 'rgba(16,185,129,0.4)', color: '#10b981' }}
+                              title="Ver cotización matcheada"
+                            >
+                              Cotización: {oc.quote_code || '—'} <ArrowRight className="w-3 h-3" />
+                            </button>
+                          )}
+                          {oc.order_doc_id && (
+                            <button
+                              type="button"
+                              onClick={() => router.push(`/documentos/${oc.order_doc_id}`)}
+                              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border hover:bg-white/5 transition-colors"
+                              style={{ borderColor: 'rgba(249,115,22,0.4)', color: '#f97316' }}
+                              title="Ver pedido generado"
+                            >
+                              Pedido: {oc.order_code || '—'} <ArrowRight className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                       {oc.ai_discrepancies && oc.ai_discrepancies.length > 0 && (
                         <div className="text-xs mt-1 opacity-80">
                           {oc.ai_discrepancies.slice(0, 2).map((d, i) => (

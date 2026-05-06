@@ -87,12 +87,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: insErr?.message || 'Error creando cotización' }, { status: 500 })
     }
 
-    // Copiar items
+    // Copiar items.
+    // OJO: la columna en tt_document_items es `sort_order` (no `line_number`).
+    // El bug previo insertaba `line_number` y PostgREST rechazaba la fila,
+    // dejando la cotización con 0 items pero `total` ya seteado.
     let itemsCreated = 0
     if (items.length > 0) {
       const itemsToInsert = items.map((item, idx) => ({
         document_id: quoteDoc.id,
-        line_number: item.linea ?? idx + 1,
+        sort_order: item.linea ?? idx + 1,
         sku: item.codigo || null,
         description: item.descripcion,
         quantity: item.cantidad,
@@ -102,7 +105,20 @@ export async function POST(req: NextRequest) {
       const { error: itemsErr, count } = await supabase
         .from('tt_document_items')
         .insert(itemsToInsert, { count: 'exact' })
-      if (!itemsErr) itemsCreated = count ?? itemsToInsert.length
+      if (itemsErr) {
+        // No swallow silencioso: devolvemos el error junto con el id de
+        // cotización ya creada, así el front puede limpiar o avisar.
+        return NextResponse.json(
+          {
+            error: `Cotización creada pero los items fallaron: ${itemsErr.message}`,
+            quoteId: quoteDoc.id,
+            quoteCode: quoteDoc.system_code,
+            itemsCreated: 0,
+          },
+          { status: 500 }
+        )
+      }
+      itemsCreated = count ?? itemsToInsert.length
     }
 
     // Auto-matchear la OC con la cotización recién creada

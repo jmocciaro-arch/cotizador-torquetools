@@ -85,12 +85,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: insErr?.message || 'Error creando pedido' }, { status: 500 })
     }
 
-    // Copiar items a tt_document_items
+    // Copiar items a tt_document_items.
+    // La columna correcta para orden de líneas es `sort_order` (no `line_number`).
     let itemsCreated = 0
     if (items.length > 0) {
       const itemsToInsert = items.map((item, idx) => ({
         document_id: orderDoc.id,
-        line_number: item.linea ?? idx + 1,
+        sort_order: item.linea ?? idx + 1,
         sku: item.codigo || null,
         description: item.descripcion,
         quantity: item.cantidad,
@@ -100,7 +101,18 @@ export async function POST(req: NextRequest) {
       const { error: itemsErr, count } = await supabase
         .from('tt_document_items')
         .insert(itemsToInsert, { count: 'exact' })
-      if (!itemsErr) itemsCreated = count ?? itemsToInsert.length
+      if (itemsErr) {
+        return NextResponse.json(
+          {
+            error: `Pedido creado pero los items fallaron: ${itemsErr.message}`,
+            orderId: orderDoc.id,
+            orderCode: orderDoc.system_code,
+            itemsCreated: 0,
+          },
+          { status: 500 }
+        )
+      }
+      itemsCreated = count ?? itemsToInsert.length
     }
 
     // Link OC → Pedido

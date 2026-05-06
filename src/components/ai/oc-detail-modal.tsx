@@ -593,7 +593,7 @@ export function OCDetailModal({ ocId, onClose, onUpdated }: Props) {
           <div className="flex justify-between items-center pt-3 border-t border-[#1E2330] flex-wrap gap-2">
             <div className="flex gap-2 flex-wrap">
               {oc.file_url && (
-                <a href={oc.file_url} target="_blank" rel="noreferrer">
+                <a href={`/api/oc/${oc.id}/pdf`} target="_blank" rel="noreferrer">
                   <Button variant="secondary" size="sm">
                     <ExternalLink size={14} /> Ver PDF original
                   </Button>

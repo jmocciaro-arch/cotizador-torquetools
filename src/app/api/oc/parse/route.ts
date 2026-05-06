@@ -64,6 +64,17 @@ export async function POST(req: NextRequest) {
     // Guardar en tt_oc_parsed
     let ocParsedId: string | undefined
     if (createDocument) {
+      // Total: SIEMPRE confiamos en la suma de items, no en el total que
+      // reporta la IA (puede alucinar). Guardamos el total reportado en
+      // metadata por trazabilidad y para detectar mismatches.
+      const computedTotal = (result.data.items || []).reduce(
+        (sum, it) => sum + (it.cantidad || 0) * (it.precio_unitario || 0),
+        0
+      )
+      const aiReportedTotal = result.data.total ?? 0
+      const totalMismatch =
+        aiReportedTotal > 0 && Math.abs(aiReportedTotal - computedTotal) > 0.01
+
       // Crear doc tipo OC en tt_documents
       const systemCode = `OC-${Date.now()}-${Math.floor(Math.random() * 1000)}`
       const { data: doc } = await supabase
@@ -74,10 +85,15 @@ export async function POST(req: NextRequest) {
           legal_number: result.data.numero_oc,
           client_id: clientId,
           company_id: companyId,
-          total: result.data.total ?? 0,
+          total: computedTotal,
           currency: result.data.moneda || 'ARS',
           status: 'pending_validation',
-          metadata: { parsed_oc: result.data },
+          metadata: {
+            parsed_oc: result.data,
+            ai_reported_total: aiReportedTotal,
+            computed_total: computedTotal,
+            total_mismatch: totalMismatch,
+          },
         })
         .select('id')
         .single()
