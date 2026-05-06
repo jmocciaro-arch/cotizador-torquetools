@@ -42,15 +42,21 @@ export async function POST(req: NextRequest) {
       { auth: { persistSession: false } }
     )
 
-    // Upload PDF
+    // Upload PDF al bucket privado `bank-statements`. Guardamos un signed URL
+    // de larga duración (mismo patrón que supplier-offers / OCs); la lectura
+    // posterior debería re-firmar contra `extractStoragePath` si caduca.
     const path = `${companyId}/${Date.now()}_${file.name.replace(/[^\w.-]/g, '_')}`
     const { error: upErr } = await supabase.storage
       .from('bank-statements')
       .upload(path, buf, { contentType: 'application/pdf' })
     let pdfUrl: string | null = null
     if (!upErr) {
-      const { data: pub } = supabase.storage.from('bank-statements').getPublicUrl(path)
-      pdfUrl = pub.publicUrl
+      const { data: signed } = await supabase.storage
+        .from('bank-statements')
+        .createSignedUrl(path, 60 * 60 * 24 * 30) // 30 días
+      pdfUrl = signed?.signedUrl ?? null
+    } else {
+      console.warn('[bank-statements parse] storage upload error:', upErr.message)
     }
 
     // Crear statement

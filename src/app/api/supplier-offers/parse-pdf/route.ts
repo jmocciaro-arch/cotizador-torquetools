@@ -275,6 +275,18 @@ export async function POST(req: NextRequest) {
     const matchedCount = matchedItems.filter((m) => !m.is_new_product).length
     const newCount = matchedItems.length - matchedCount
 
+    // Recalculamos subtotal/total/tax_amount desde los items para evitar
+    // que la IA "alucine" totales (mismo bug que tenía OC parse). El total
+    // reportado por la IA queda en metadata para auditoría.
+    const calcSubtotal = matchedItems.reduce((sum, it) => sum + (it.subtotal || 0), 0)
+    const taxRate = parsed.tax_rate ?? null
+    const calcTaxAmount = taxRate != null
+      ? Number((calcSubtotal * (taxRate / 100)).toFixed(2))
+      : null
+    const calcTotal = calcTaxAmount != null
+      ? Number((calcSubtotal + calcTaxAmount).toFixed(2))
+      : Number(calcSubtotal.toFixed(2))
+
     return NextResponse.json({
       ok: true,
       parsed: {
@@ -289,10 +301,11 @@ export async function POST(req: NextRequest) {
         payment_terms: parsed.payment_terms ?? null,
         incoterm: parsed.incoterm ?? null,
         delivery_terms: parsed.delivery_terms ?? null,
-        subtotal: parsed.subtotal ?? null,
-        tax_rate: parsed.tax_rate ?? null,
-        tax_amount: parsed.tax_amount ?? null,
-        total: parsed.total ?? null,
+        subtotal: Number(calcSubtotal.toFixed(2)),
+        tax_rate: taxRate,
+        tax_amount: calcTaxAmount,
+        total: calcTotal,
+        ai_reported_total: parsed.total ?? null,
         notes: parsed.notes ?? null,
         items: matchedItems,
         confidence: parsed.confidence ?? null,
