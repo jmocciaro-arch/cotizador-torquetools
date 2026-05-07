@@ -156,7 +156,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 6) Descargar PDF oficial y subirlo a Storage
+    // 6) Descargar PDF oficial y subirlo a Storage. El bucket `invoices` es
+    // privado: guardamos un signed URL de larga duración (mismo patrón que
+    // bank-statements / supplier-offers / OCs).
     let pdfUrl: string | null = null
     try {
       const preferencia = String(final.MovimientoId || movimiento.MovimientoId)
@@ -167,8 +169,12 @@ export async function POST(req: NextRequest) {
         .from('invoices')
         .upload(path, Buffer.from(pdfBuffer), { contentType: 'application/pdf' })
       if (!upErr) {
-        const { data: pub } = supabase.storage.from('invoices').getPublicUrl(path)
-        pdfUrl = pub.publicUrl
+        const { data: signed } = await supabase.storage
+          .from('invoices')
+          .createSignedUrl(path, 60 * 60 * 24 * 365) // 1 año (factura legal)
+        pdfUrl = signed?.signedUrl ?? null
+      } else {
+        console.warn('[tango emit] storage upload error:', upErr.message)
       }
     } catch (err) {
       console.warn('No se pudo descargar PDF de Tango:', err)

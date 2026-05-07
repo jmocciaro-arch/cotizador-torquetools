@@ -37,7 +37,7 @@ export interface DocumentData {
 
 interface DocumentItem {
   id: string
-  line_number: number | null
+  sort_order: number | null
   sku: string | null
   description: string
   quantity: number
@@ -131,7 +131,7 @@ export function DocumentDetailModal({ open, onClose, documentId, onChanged }: Pr
 
     void Promise.all([
       supabase.from('tt_documents').select('*').eq('id', documentId).single(),
-      supabase.from('tt_document_items').select('*').eq('document_id', documentId).order('line_number'),
+      supabase.from('tt_document_items').select('*').eq('document_id', documentId).order('sort_order'),
       supabase.from('tt_document_links')
         .select('*, parent:tt_documents!parent_id(id,type,system_code,legal_number,total,currency,status), child:tt_documents!child_id(id,type,system_code,legal_number,total,currency,status)')
         .or(`parent_id.eq.${documentId},child_id.eq.${documentId}`),
@@ -227,10 +227,10 @@ export function DocumentDetailModal({ open, onClose, documentId, onChanged }: Pr
 
       // Copiar items
       if (items.length > 0 && newDoc) {
-        await supabase.from('tt_document_items').insert(
-          items.map(it => ({
+        const { error: itemsErr } = await supabase.from('tt_document_items').insert(
+          items.map((it, idx) => ({
             document_id: newDoc.id,
-            line_number: it.line_number,
+            sort_order: it.sort_order ?? idx + 1,
             sku: it.sku,
             description: it.description,
             quantity: it.quantity,
@@ -238,6 +238,7 @@ export function DocumentDetailModal({ open, onClose, documentId, onChanged }: Pr
             subtotal: it.subtotal,
           }))
         )
+        if (itemsErr) throw itemsErr
       }
       addToast({ type: 'success', title: `Copia creada: ${newCode}` })
       onChanged?.()
@@ -383,7 +384,7 @@ export function DocumentDetailModal({ open, onClose, documentId, onChanged }: Pr
                   <tr><td colSpan={6} className="text-center py-6 text-[#6B7280] text-xs">Sin items</td></tr>
                 ) : items.map(it => (
                   <tr key={it.id} className="hover:bg-[#141820]">
-                    <td className="px-3 py-2 text-[#6B7280] font-mono text-[10px]">{it.line_number || ''}</td>
+                    <td className="px-3 py-2 text-[#6B7280] font-mono text-[10px]">{it.sort_order || ''}</td>
                     <td className="px-3 py-2 font-mono text-xs text-[#FF6600]">{it.sku || '—'}</td>
                     <td className="px-3 py-2 text-[#F0F2F5] truncate max-w-md">{it.description}</td>
                     <td className="px-3 py-2 text-right font-mono text-xs">{Number(it.quantity).toLocaleString('es-AR')}</td>

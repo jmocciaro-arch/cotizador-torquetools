@@ -2742,18 +2742,29 @@ export function DocumentForm({
             const newAttachments = [...existingAttachments]
 
             for (const file of Array.from(files)) {
-              const path = `documents/${documentId}/${Date.now()}_${file.name}`
+              const safeName = file.name.replace(/[^\w.-]/g, '_')
+              const path = `documents/${documentId}/${Date.now()}_${safeName}`
               const { error } = await supabase.storage.from('attachments').upload(path, file, { upsert: true })
-              if (!error) {
-                const { data: urlData } = supabase.storage.from('attachments').getPublicUrl(path)
-                newAttachments.push({
-                  name: file.name,
-                  url: urlData.publicUrl,
-                  type: file.type,
-                  size: file.size,
-                  uploaded_at: new Date().toISOString(),
-                })
+              if (error) {
+                console.warn('[document-form attachments] upload error:', error.message)
+                addToast({ type: 'error', title: `No se pudo subir ${file.name}`, message: error.message })
+                continue
               }
+              // Bucket privado: signed URL larga (1 año). Re-firmar al leer si caduca.
+              const { data: signed } = await supabase.storage
+                .from('attachments')
+                .createSignedUrl(path, 60 * 60 * 24 * 365)
+              if (!signed?.signedUrl) {
+                console.warn('[document-form attachments] no signed URL for', path)
+                continue
+              }
+              newAttachments.push({
+                name: file.name,
+                url: signed.signedUrl,
+                type: file.type,
+                size: file.size,
+                uploaded_at: new Date().toISOString(),
+              })
             }
 
             // Save to metadata
