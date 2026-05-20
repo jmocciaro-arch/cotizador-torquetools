@@ -105,6 +105,7 @@ function createWindow(targetUrl) {
     minWidth: 1024,
     minHeight: 640,
     backgroundColor: "#0a0a0a",
+    title: `Mocciaro Soft v${app.getVersion()}`,
     titleBarStyle: "hiddenInset",
     webPreferences: {
       nodeIntegration: false,
