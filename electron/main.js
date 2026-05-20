@@ -5,6 +5,8 @@
 const { app, BrowserWindow, shell, Menu, dialog } = require("electron");
 const path = require("node:path");
 const http = require("node:http");
+const fs = require("node:fs");
+const os = require("node:os");
 const log = require("electron-log/main");
 const { autoUpdater } = require("electron-updater");
 
@@ -39,6 +41,39 @@ function waitForHttp(url, timeoutMs = 30000) {
   });
 }
 
+// Carga env vars desde ~/Library/Application Support/Mocciaro Soft/.env
+// Si no existe, intenta copiarlo desde ~/mocciaro-soft/.env.local (primer arranque
+// en la Mac del dev). En distribución a otras Macs habrá que armar un flujo de setup,
+// pero para el POC esto deja a Juan andando sin pasos manuales.
+function loadUserEnv() {
+  const userDir = app.getPath("userData");
+  const userEnv = path.join(userDir, ".env");
+  if (!fs.existsSync(userEnv)) {
+    const devEnv = path.join(os.homedir(), "mocciaro-soft", ".env.local");
+    if (fs.existsSync(devEnv)) {
+      fs.mkdirSync(userDir, { recursive: true });
+      fs.copyFileSync(devEnv, userEnv);
+      log.info(`[env] bootstrap inicial: copiado ${devEnv} → ${userEnv}`);
+    } else {
+      log.warn(`[env] no encontré ${userEnv} ni ${devEnv}. La app no va a poder conectar a Supabase.`);
+      return;
+    }
+  }
+  const content = fs.readFileSync(userEnv, "utf8");
+  let loaded = 0;
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+    if (!m) continue;
+    const [, k, v] = m;
+    if (process.env[k]) continue; // no pisar lo que viene del shell
+    process.env[k] = v.replace(/^["']|["']$/g, "");
+    loaded++;
+  }
+  log.info(`[env] ${loaded} variables cargadas desde ${userEnv}`);
+}
+
 async function startEmbeddedNextServer() {
   // En la app empaquetada, .next/standalone vive dentro de resources/app
   // gracias al glob "build.files" de electron-builder.
@@ -46,7 +81,11 @@ async function startEmbeddedNextServer() {
   const getPort = require("get-port-please").getPort;
   nextServerPort = await getPort({ port: 3000, portRange: [3000, 3999] });
 
-  const serverPath = path.join(process.resourcesPath, "app", ".next", "standalone", "server.js");
+  // .next/standalone se copia plano a Resources/app/ via extraResources.
+  // server.js queda directo en Resources/app/server.js junto con su mini node_modules.
+  // .next/static y public/ van a Resources/app/.next/static y Resources/app/public
+  // para que el server los encuentre con paths relativos.
+  const serverPath = path.join(process.resourcesPath, "app", "server.js");
   log.info(`[next] Arrancando server embebido: ${serverPath} en :${nextServerPort}`);
 
   process.env.PORT = String(nextServerPort);
@@ -130,6 +169,7 @@ app.whenReady().then(async () => {
       targetUrl = DEV_URL;
       log.info(`[boot] dev mode → ${targetUrl}`);
     } else {
+      loadUserEnv();
       await startEmbeddedNextServer();
       targetUrl = `http://127.0.0.1:${nextServerPort}/`;
     }
